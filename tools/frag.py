@@ -38,6 +38,10 @@ REF = ROOT / "references"
 FRAG = ROOT / "fragments"
 
 MAX_LINES = int(os.environ.get("FRAG_MAX_LINES", "4"))   # 单片段上限，可用环境变量覆盖做 A/B
+# 「一个整体」的模块：身份（00）必须整片到达。人设被切成 3+2 时，检索只捞得回半个人，
+# 而 00 一共就十几行——放大上限比让下一个人手工凑到 4 条更划算（2026-10-24 shiori-old 实测）。
+WHOLE_MODULES = {"00"}
+WHOLE_MAX_LINES = int(os.environ.get("FRAG_WHOLE_MAX_LINES", "40"))
 MIN_CHARS = 20          # 太短的段落并入上一片段
 SENSITIVE_MODULES = {"10", "22", "23"}
 MAIN_MODULES = {"89", "87", "88", "02", "02a", "07", "83", "86", "85", "90", "77", "97", "98", "99"}
@@ -108,8 +112,12 @@ def slug(text: str, limit: int = 10) -> str:
     return (cleaned or "片段")[:limit]
 
 
-def split_paragraphs(body: list[str]) -> list[tuple[str, list[str]]]:
-    """按空行切段，并把空行前后的小段合并；返回 [(标题, 行列表)]。"""
+def split_paragraphs(body: list[str], whole: bool = False) -> list[tuple[str, list[str]]]:
+    """按空行切段，并把空行前后的小段合并；返回 [(标题, 行列表)]。
+
+    whole=True 的模块（身份 00）用更大的单片上限，保证整篇落在一个片段里。
+    """
+    limit = WHOLE_MAX_LINES if whole else MAX_LINES
     blocks: list[tuple[str, list[str]]] = []
     heading = ""
     buf: list[str] = []
@@ -128,12 +136,13 @@ def split_paragraphs(body: list[str]) -> list[tuple[str, list[str]]]:
     for raw in body:
         line = raw.rstrip()
         if not line.strip():
-            if len(buf) >= 4:
+            if not whole and len(buf) >= 4:
                 flush()
             continue
         if line.startswith("#"):
-            flush()
-            heading = line.lstrip("#").strip()
+            if not whole:
+                flush()
+                heading = line.lstrip("#").strip()
             buf.append(line)
             continue
         buf.append(line)
@@ -144,7 +153,7 @@ def split_paragraphs(body: list[str]) -> list[tuple[str, list[str]]]:
     for title, lines in blocks:
         text = "".join(lines)
         if merged and len(text) < MIN_CHARS and not lines[0].lstrip().startswith("#") \
-                and len(merged[-1][1]) < MAX_LINES // 2:
+                and len(merged[-1][1]) < limit // 2:
             merged[-1][1].extend(lines)
         else:
             merged.append((title, lines))
@@ -152,14 +161,14 @@ def split_paragraphs(body: list[str]) -> list[tuple[str, list[str]]]:
     # 过长的片段在中间切
     out: list[tuple[str, list[str]]] = []
     for title, lines in merged:
-        if len(lines) <= MAX_LINES:
+        if len(lines) <= limit:
             out.append((title, lines))
             continue
         chunk: list[str] = []
         part = 1
         for line in lines:
             chunk.append(line)
-            if len(chunk) >= MAX_LINES:
+            if len(chunk) >= limit:
                 out.append((f"{title}（{part}）", chunk))
                 chunk = []
                 part += 1
@@ -171,7 +180,7 @@ def split_paragraphs(body: list[str]) -> list[tuple[str, list[str]]]:
         base = re.sub(r"（\d+）$", "", title)
         if merged_tail and len(lines) <= 1:
             prev_title, prev_lines = merged_tail[-1]
-            if re.sub(r"（\d+）$", "", prev_title) == base and len(prev_lines) < MAX_LINES + 3:
+            if re.sub(r"（\d+）$", "", prev_title) == base and len(prev_lines) < limit + 3:
                 prev_lines.extend(lines)
                 continue
         merged_tail.append((title, lines))
@@ -360,7 +369,7 @@ def build() -> int:
         distribute = meta.get("distribute", "keep")
         mod_kw = tokens_of(" ".join(
             k.strip() for k in meta.get("keywords", "").splitlines() if k.strip()))
-        parts = split_paragraphs(body)
+        parts = split_paragraphs(body, whole=mod_id in WHOLE_MODULES)
         rel = path.relative_to(ROOT).as_posix()
         line_dates = cached_line_dates(rel, body, date_cache)
         spans = locate_spans(parts, body)
