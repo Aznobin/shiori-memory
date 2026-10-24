@@ -42,6 +42,10 @@ MAX_LINES = int(os.environ.get("FRAG_MAX_LINES", "4"))   # 单片段上限，可
 # 而 00 一共就十几行——放大上限比让下一个人手工凑到 4 条更划算（2026-10-24 shiori-old 实测）。
 WHOLE_MODULES = {"00"}
 WHOLE_MAX_LINES = int(os.environ.get("FRAG_WHOLE_MAX_LINES", "40"))
+
+# 退休行（软删，2026-10-24 她定的「删是软删」）：正文留在 md 里，但不进片段、不被检索命中。
+# 依据 `references/90` §4「本库没有容量压力，删等于丢」。
+RETIRED_RE = re.compile(r"（已退休 \d{4}-\d{2}-\d{2}：")
 MIN_CHARS = 20          # 太短的段落并入上一片段
 SENSITIVE_MODULES = {"10", "22", "23"}
 MAIN_MODULES = {"89", "87", "88", "02", "02a", "07", "83", "86", "85", "90", "77", "97", "98", "99"}
@@ -369,6 +373,9 @@ def build() -> int:
         distribute = meta.get("distribute", "keep")
         mod_kw = tokens_of(" ".join(
             k.strip() for k in meta.get("keywords", "").splitlines() if k.strip()))
+        # 退休行（软删，2026-10-24）：正文留在 md 里可追溯，但不进片段、不被检索命中。
+        # 换成空串而不是删行，`locate_spans` 还要靠原始下标对齐行号。
+        body = ["" if RETIRED_RE.search(ln) else ln for ln in body]
         parts = split_paragraphs(body, whole=mod_id in WHOLE_MODULES)
         rel = path.relative_to(ROOT).as_posix()
         line_dates = cached_line_dates(rel, body, date_cache)
