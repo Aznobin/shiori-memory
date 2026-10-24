@@ -5,11 +5,16 @@
 <p align="center">No vector database. No API key. No extra service.</p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.3.33-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.0-blue">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
   <img alt="python" src="https://img.shields.io/badge/python-%E2%89%A53.12-yellow">
   <img alt="platform" src="https://img.shields.io/badge/DeepSeek%20Harness-plugin-purple">
+  <img alt="format" src="https://img.shields.io/badge/%E7%BA%AF-Markdown-1f6feb">
+  <img alt="deps" src="https://img.shields.io/badge/%E4%BE%9D%E8%B5%96-0-brightgreen">
+  <img alt="tests" src="https://img.shields.io/badge/verify_pack-P0%200%20%C2%B7%20P1%200-success">
 </p>
+
+<p align="center"><sub><code>一个目录 = 整份记忆</code> · <code>换机器拷走就行</code> · <code>不上云也能用</code> · <code>骨架有校验和</code></sub></p>
 
 <p align="center">给 AI 编码助手用的纯 Markdown 长期记忆库：片段化存储、关键词路由、时间衰减、写入闸门。</p>
 
