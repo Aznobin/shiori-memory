@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -113,6 +114,27 @@ def fetch(url: str, timeout: int) -> bytes:
         return resp.read()
 
 
+def api_manifest_version(base: str, timeout: int) -> str:
+    """走 GitHub contents API 读 manifest.json 里的 version；拿不到就返回空串。
+
+    为什么要绕 API：raw.githubusercontent.com 对单文件有约 5 分钟 CDN 缓存，刚发版时读 raw
+    会拿到旧版（2026-10-24 shiori-new5 实测：VERSION 已 0.3.19，raw 还报 0.3.17，加 `?cb=` 也
+    绕不过）。API 不缓存，匿名额度 60 次/小时，check 只用一次。
+    """
+    owner, repo, branch = _split_source(base)
+    if not owner:
+        return ""
+    url = f"https://api.github.com/repos/{owner}/{repo}/contents/manifest.json?ref={branch}"
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "user-memory-updater", "Accept": "application/vnd.github+json"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read())
+    raw = base64.b64decode(data.get("content") or "")
+    return str(json.loads(raw).get("version") or "")
+
+
 def load_cache() -> dict:
     try:
         return json.loads(CACHE.read_text(encoding="utf-8"))
@@ -147,14 +169,21 @@ def check(force: bool = False, quiet: bool = False) -> dict:
         if not base:
             error = "未配置更新源（memory.config.json → update.source）"
         else:
+            # 2026-10-24 订正：原来写「manifest 不受 raw 缓存影响」，实测是错的——发版后第一次
+            # check 读到的是上一版的 manifest（shiori-new5 报的）。现在先试 GitHub API（不缓存），
+            # 再退回 raw（有约 5 分钟 CDN 缓存，可能读旧），最后才用 VERSION 兜底。
             try:
-                # 优先读 manifest.json 里的 version：raw 对单文件有几分钟 CDN 缓存，
-                # 刚发版时读 VERSION 会拿到旧值；manifest 是每次发版才出现的文件，不受这个影响。
-                remote = str(
-                    json.loads(fetch(f"{base}/manifest.json", TIMEOUT_CHECK)).get("version") or ""
-                )
+                remote = api_manifest_version(base, TIMEOUT_CHECK)
             except (urllib.error.URLError, OSError, TimeoutError, ValueError) as exc:
                 error = f"{type(exc).__name__}: {exc}"
+            if not remote:
+                try:
+                    remote = str(
+                        json.loads(fetch(f"{base}/manifest.json", TIMEOUT_CHECK)).get("version") or ""
+                    )
+                    error = ""
+                except (urllib.error.URLError, OSError, TimeoutError, ValueError) as exc:
+                    error = error or f"{type(exc).__name__}: {exc}"
             if not remote:
                 try:
                     remote = (
