@@ -70,6 +70,7 @@ python tools/memwrite.py 请求.json --changelog "一句话摘要"
 - 第一次写的空模块，开头那句「> 这个模块是空的…」会被自动删掉，不用管
 - 新建模块：`python tools/memwrite.py --new-module 07-项目`（同时刷路由表和 CATALOG）
 - 拿不准的推测先扔 `references\_待确认.md`（文件末尾一条 bullet），别当事实用
+- **一次往同一个模块加不超过 4 条**：切片器按 `MAX_LINES=4` 机械切，同一件事写超了会被拆到两片里，检索只命中半截（`00-我是谁` 有豁免，`WHOLE_MODULES` 里不让切）
 - 每天收尾跑一次结算（幂等，跑多次只算一次）：`python tools/tick.py`
 
 ## 3. 批量导入（喂文件）
