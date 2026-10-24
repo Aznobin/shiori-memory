@@ -71,6 +71,15 @@ SHIFT_WORDS = ("换个", "改做", "另外", "对了", "顺便", "回到", "继�
 
 CARD_HEAD = "【记忆·按需注入】"
 
+# 卡片头下面这句归属声明（2026-10-24 新设备演练时 shiori-old 挖出来的）：
+# 错的时刻不是「存的时候没声明」，是「内容进上下文时没人说它属于谁」，于是默认归给
+# 当前说话的人。frontmatter 在读取链上被剥掉了（frag 切片不带它、卡片按正文拼），
+# 所以声明只能放在这里——每读一次重声明一次。写死成通用文案，不带任何人名（会进包）。
+SUBJECT_NOTE = (
+    "以下条目属于本库主人本人，不是当前会话里的其他参与者"
+    "（测试员 / 子智能体 / 导入的样本记录都不算）"
+)
+
 # 每轮都带的指针行（2026-10-20 她要求）：她的原话是「每次都读怎么没实现呢…
 # 提醒有记忆库这个东西的存在就行」。注入内容会漂，这一行不许漂。
 # 路径**不许写死**：原来硬编码到某个具体用户目录，换机 / 打包都会把用户名带出去（2026-10-20 修）。
@@ -417,6 +426,7 @@ def build_card(rows, st, reason):
     if not picked:
         return POINTER, []
     lines = [POINTER, "", "%s（%s，%d 条）" % (CARD_HEAD, reason, len(picked))]
+    lines.append("> " + SUBJECT_NOTE)
     for fp, score, doc, line, body in picked:
         lines.append("- %s:%s %s" % (doc, line, body))
     return "\n".join(lines), [p[0] for p in picked]

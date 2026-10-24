@@ -71,13 +71,19 @@ def parse(pattern: str, text: str, default: str = "?") -> str:
 
 
 def write_inspect(row: dict[str, str]) -> None:
-    """把这一轮结论插进巡检记录的表头下，只留最近 5 条。"""
+    """把这一轮结论插进巡检记录的表头下，只留最近 5 条。
+
+    2026-10-24 女儿发现的坑：分发包里的巡检记录是空白壳（只有说明文字、没有表格），
+    原来这里找不到 `| ---` 就静默 return——于是体检结论永远写不进去，而且完全看不出
+    原因，`memory_check` 的「没有任何体检日期」会一直报下去。缺表头就补一份四列的。
+    """
     if not INSPECT.exists():
         return
     lines = INSPECT.read_text(encoding="utf-8").splitlines()
     sep = next((i for i, l in enumerate(lines) if re.match(r"^\|\s*-{2,}", l)), -1)
     if sep < 0:
-        return
+        lines += ["", "| 日期 | 结论 | 新发现 | 动作 |", "| --- | --- | --- | --- |"]
+        sep = len(lines) - 1
     new = "| {date} | {result} | {found} | {action} |".format(**row)
     head, body = lines[: sep + 1], lines[sep + 1 :]
     rows = [l for l in body if l.startswith("| ")]
