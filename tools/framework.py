@@ -25,7 +25,8 @@ ROOT = Path(__file__).resolve().parent.parent
 WORKTREE = ROOT / ".framework"
 BRANCH = "framework"
 # 发行版线：framework 的每次提交 --no-ff merge 进 Release，merge commit 署名她
-# （2026-10-24 她定的：merge 名字写她的，改动写 Firin）。推远端时 Release 就是 skeleton 的 main。
+# （2026-10-24 她定的：merge 名字写她的，改动写 Firin）。推远端时 Release 就是
+# skeleton 的 master（发行版主线，她定的）；main 也一起推，兼容写死了 .../main 的老用户。
 RELEASE = "release"
 # 版本号单一来源：只读仓库根的 VERSION，产物里的 VERSION 也用这个值重写。
 # 以前这里硬编码过一次 "0.3.0"、VERSION 文件又是 "0.3.1"，同一次发布里两个版本号对不上。
@@ -581,7 +582,11 @@ def build(push: bool, push_public: bool = False) -> int:
     if push_public:
         # 第一次从 orphan 换到 merge 线时远端历史对不上，允许一次 --force-with-lease；
         # 之后每次都走快进（release 只追加 merge 提交）。
-        r = git("push", "skeleton", f"{RELEASE}:main", f"refs/tags/{TAG}:refs/tags/{TAG}",
+        # 两条都推：master 是她定的「发行版主线」（2026-10-24），main 留着兼容
+        # 那些 update.source 里已经写死 .../main 的老用户——两边 finger 一致，
+        # 推哪个都不多余，删 main 反而会让老用户拉不到新版。
+        r = git("push", "skeleton", f"{RELEASE}:master", f"{RELEASE}:main",
+                f"refs/tags/{TAG}:refs/tags/{TAG}",
                 "--force-with-lease", cwd=WORKTREE)
         if r.returncode == 0:
             print("push-public: ok（别人 update.py 立刻能看到新版）")
