@@ -172,14 +172,42 @@ def main() -> int:
     # 另一台机器的用户名（本机与台式机器名不同，写进文档就带出去了），换机一次就漏一次。
     WIN_HOME_RE = re.compile(r"(?i)\b[A-Z]:[\\/]+Users[\\/]+[^\\/\s`'\"]+")
 
+    # 公开骨架库地址白名单：这些不算隐私，且是框架用户 update.py 的唯一入口，
+    # 被 scrub 洗掉就等于热更新直接坏掉。owner/repo 从 update.source 推，不在这里硬编码名字
+    # ——硬编码的话这份 pack.py 自己也会被洗成占位符，别人拿去重打包就带错了。
+    KEEP_URLS: list[str] = []
+    _base = str((cfg.get("update") or {}).get("source") or "").rstrip("/")
+    _m = re.match(r"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/", _base)
+    if _m:
+        _owner, _repo = _m.group(1), _m.group(2)
+        KEEP_URLS = [
+            f"https://raw.githubusercontent.com/{_owner}/{_repo}",
+            f"https://github.com/{_owner}/{_repo}",
+            f"https://codeload.github.com/{_owner}/{_repo}",
+            f"git@github.com:{_owner}/{_repo}.git",
+        ]
+
     def sanitize(text: str) -> str:
+        # 公开骨架库地址不是隐私（骨架仓库本来就是公开的），
+        # 但 scrub 表会把 URL 里的账号名一起洗掉（人名词条是全局替换），
+        # 结果包里的 update.source / manifest.repo 全变占位符，urllib 直接抛 InvalidURL。
+        # 所以先把这几条 URL 抠出来，洗完再塞回去（2026-10-24 实测踩到）。
+        shields: dict[str, str] = {}
+        for i, url in enumerate(KEEP_URLS):
+            if url in text:
+                token = f"\x00KEEPURL{i}\x00"
+                shields[token] = url
+                text = text.replace(url, token)
         for real, ph in mapping:
             if real:
                 text = text.replace(real, ph)
         # json/yml 里路径是转义写的（C:\\Users\\user），单反斜杠正则匹配不到，等于漏用户名
         WIN_HOME_ESC_RE = re.compile(r"(?i)[A-Z]:[\\\\/]+Users[\\\\/]+[^\\\\/\s\"']+")
         text = WIN_HOME_ESC_RE.sub("%USERPROFILE%", text)
-        return WIN_HOME_RE.sub("%USERPROFILE%", text)
+        text = WIN_HOME_RE.sub("%USERPROFILE%", text)
+        for token, url in shields.items():
+            text = text.replace(token, url)
+        return text
 
     # 2026-10-24：四值断言必须先跑、并且在动 dist 之前跑。
     # 原来的位置在复制完、开始处理 references 时，那时 dist/<版本> 已经被 rmtree 重建过了——

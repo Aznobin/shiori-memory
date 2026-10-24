@@ -233,7 +233,7 @@ def git(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", *args], cwd=str(ROOT), capture_output=True, text=True)
 
 
-def apply_via_git() -> int:
+def apply_via_git(dry: bool = False) -> int:
     if git("status", "--porcelain").stdout.strip():
         out("工作区不干净（有未提交的改动）。先 commit 或 stash，再更新——不然冲突会被搅在一起。")
         out("  git add -A && git commit -m \"更新前存档\"")
@@ -245,6 +245,12 @@ def apply_via_git() -> int:
         out(f"  git remote add skeleton {skeleton}")
         out("（已经在骨架库里 clone 的话，remote 名一般是 origin，直接 git pull 即可）")
         return 1
+    if dry:
+        out("（dry）会做这些事：")
+        out("  1. git pull --ff-only skeleton main")
+        out("  2. frag.py build + memdb.py index 重建")
+        out("一个字没动盘。去掉 --dry 再跑就是真更新。")
+        return 0
     out("拉取骨架……")
     r = git("pull", "--ff-only", "skeleton", "main")
     if r.returncode != 0:
@@ -256,7 +262,19 @@ def apply_via_git() -> int:
     return rebuild()
 
 
-def apply_via_manifest() -> int:
+# 框架件：骨架自己的代码、协议、模板。
+# 这些**无条件覆盖**——用户本来就不该改它们；真改了也留不住，因为新版可能改了同一个函数，
+# 把旧版留在原地等于让人拿旧代码跑新数据（2026-10-24 实测：13 个 tools 全被写成 .new，
+# 热更新等于没生效）。
+FRAMEWORK_DIRS = ("tools/", "bin/", "templates/", "framework-public/")
+FRAMEWORK_FILES = ("setup.ps1", "SKILL.md", "README.md", "LICENSE", "VERSION", ".gitignore")
+
+
+def is_framework_path(rel: str) -> bool:
+    return rel.startswith(FRAMEWORK_DIRS) or rel in FRAMEWORK_FILES
+
+
+def apply_via_manifest(dry: bool = False) -> int:
     zip_src = zip_url(raw_base())
     if not zip_src:
         out("没配更新源，下不了骨架包。先写 memory.config.json 的 update.source，")
@@ -318,37 +336,46 @@ def apply_via_manifest() -> int:
             if old_bytes == new_bytes:
                 same.append(rel)
                 continue
-            backup.mkdir(parents=True, exist_ok=True)
-            dst = backup / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_bytes(old_bytes)
+            if not dry:
+                backup.mkdir(parents=True, exist_ok=True)
+                dst = backup / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(old_bytes)
             # 判断「用户改过没」：有 git 问 git；没 git 就对比上次清单里的 sha256。
             # 两样都没有（第一次更新）判断不了，那就覆盖 + 留备份，并在输出里说清楚。
-            if in_git_repo():
+            if is_framework_path(rel):
+                user_touched = False
+            elif in_git_repo():
                 user_touched = bool(git("status", "--porcelain", "--", rel).stdout.strip())
             elif prev_files.get(rel):
                 user_touched = hashlib.sha256(old_bytes).hexdigest() != prev_files[rel]
             else:
                 user_touched = False
             if user_touched:
-                sidecar = target.with_name(target.name + ".new")
-                sidecar.write_bytes(new_bytes)
+                if not dry:
+                    sidecar = target.with_name(target.name + ".new")
+                    sidecar.write_bytes(new_bytes)
                 conflicted.append(rel)
             else:
-                target.write_bytes(new_bytes)
+                if not dry:
+                    target.write_bytes(new_bytes)
                 changed.append(rel)
         else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(new_bytes)
+            if not dry:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(new_bytes)
             added.append(rel)
 
     # 把这次新版清单存下来，下次更新才有基准判断「我改过没」
-    STATE.mkdir(parents=True, exist_ok=True)
-    (STATE / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    if not dry:
+        STATE.mkdir(parents=True, exist_ok=True)
+        (STATE / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
 
     out("")
+    if dry:
+        out("（dry）只是预演，一个字没动盘。去掉 --dry 再跑就是真更新。")
     out(f"覆盖 {len(changed)} · 新增 {len(added)} · 相同跳过 {len(same)} · 你改过（写成 .new）{len(conflicted)}")
     if conflicted:
         out("")
@@ -360,6 +387,8 @@ def apply_via_manifest() -> int:
         out(f"旧版备份在：{backup if backup.exists() else '（无）'}")
         out("退回去：python tools/update.py rollback")
     shutil.rmtree(tmp, ignore_errors=True)
+    if dry:
+        return 0
     return rebuild()
 
 
@@ -380,7 +409,7 @@ def rebuild() -> int:
     return 0
 
 
-def apply(via_git: bool = False) -> int:
+def apply(via_git: bool = False, dry: bool = False) -> int:
     local, remote = local_version(), check(quiet=True)["remote"]
     if remote and parse_ver(remote) <= parse_ver(local):
         out(f"已经是最新（本地 {local}），不用换。")
@@ -388,8 +417,8 @@ def apply(via_git: bool = False) -> int:
     # 默认走「下载包 → 按 manifest 逐文件换」：骨架库是发布物，每次重建提交历史，
     # 用 git pull 会撞上历史不连续。manifest 路线对 zip 用户和 git 用户是同一套行为。
     if via_git:
-        return apply_via_git()
-    return apply_via_manifest()
+        return apply_via_git(dry=dry)
+    return apply_via_manifest(dry=dry)
 
 
 # ---------------------------------------------------------------- rollback
@@ -430,6 +459,7 @@ def main() -> int:
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--via-git", action="store_true",
                     help="apply 时改用 git pull（只有骨架库历史连续时才行，默认不用）")
+    ap.add_argument("--dry", action="store_true", help="apply / rollback 只预演，不动盘")
     args = ap.parse_args()
 
     if sys.version_info < MIN_PYTHON:
@@ -445,7 +475,7 @@ def main() -> int:
             out(line)
         return 0
     if args.action == "apply":
-        return apply(via_git=args.via_git)
+        return apply(via_git=args.via_git, dry=args.dry)
     if args.action == "rollback":
         return rollback()
     if args.action == "status":
