@@ -3,8 +3,8 @@
     "AGENTS.md": "3e4dd4367f81835f591a659579b87b70073719b2b7864a166816a1f48346aadd",
     "LICENSE": "76bed9a79e410bcee5b3f47f3929829e54a8e360b872d6fdc5acc0baae2e9ae2",
     "README.md": "7f364728fba67dfa87955b1e3e4fab10a9ac15a85b49fb0c7b66623cb28a57f6",
-    "SKILL.md": "083fe3818518d6a7e11c00f3f0f55f73aeecf04fadb52b3774d0c2c140222c07",
-    "VERSION": "6c40f0551041cf01b1e9a466a23a97c9843ec496d052f5bdf9fba491149b2029",
+    "SKILL.md": "a215b444b956768b0238558e8a7ab2c0088023258cdb8644b36f890ef128a1f5",
+    "VERSION": "43b87933a1eb1e2b53189e6c81aae8ae4b4b745f61df8ad3ef731bb8ff993671",
     "bin/recall-hook.cmd": "8b65739b8389275959133d9ff7fe3ca99ae109eca56f436bc135d4f2f5eb37e3",
     "bin/recall-hook.sh": "a9eb77e339bb2ec2b0cdd39d1dc49aeecabf04dff84fdd52b47e4973baf16368",
     "config.example.json": "90bbde4c96c01b026c6820cfb43a5c7c605991d1efc2bdfe64bfd1a24892839e",
@@ -71,5 +71,5 @@
   },
   "min_python": "3.10",
   "repo": "https://github.com/Aznobin/shiori-memory",
-  "version": "0.3.30"
+  "version": "0.3.31"
 }
