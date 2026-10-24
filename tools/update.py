@@ -377,9 +377,18 @@ def apply_via_manifest(dry: bool = False) -> int:
             else:
                 user_touched = False
             if user_touched:
+                # 先给 .new 挂一行来路说明（2026-10-24 shiori-old 定的方案）：
+                # 隔天、换人、换会话，终端输出早没了，只剩这个文件还在。
+                # 但说明只能放在正文之外——塞进正文会让 diff 永远多一行，合并的人每次都得判断留不留。
+                protocol = rel.startswith("references/9")
                 if not dry:
                     sidecar = target.with_name(target.name + ".new")
-                    sidecar.write_bytes(new_bytes)
+                    note = (
+                        "<!-- 来源：骨架协议件（公开仓脱敏版），合完删本行 -->\n"
+                        if protocol
+                        else "<!-- 来源：你本地改过这份，新版放在旁边，合并时保你的 -->\n"
+                    )
+                    sidecar.write_bytes(note.encode("utf-8") + new_bytes)
                 conflicted.append(rel)
             else:
                 if not dry:
@@ -404,9 +413,10 @@ def apply_via_manifest(dry: bool = False) -> int:
     out(f"覆盖 {len(changed)} · 新增 {len(added)} · 相同跳过 {len(same)} · 你改过（写成 .new）{len(conflicted)}")
     if conflicted:
         out("")
-        out("这些你本地改过，新版放在同名 .new 文件旁边，自己合：")
+        out("这些文件没直接覆盖，新版放在同名 .new 旁边，自己合：")
         for rel in conflicted:
-            out(f"  {rel} → {rel}.new")
+            tag = "协议件" if rel.startswith("references/9") else "你改过"
+            out(f"  [{tag}] {rel} → {rel}.new")
     if changed or added:
         out("")
         out(f"旧版备份在：{backup if backup.exists() else '（无）'}")
