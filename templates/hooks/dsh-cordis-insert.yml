@@ -1,0 +1,9 @@
+# DSH 侧挂载段（贴进 <home>\.dsh\profiles\desktop\cordis.patch.yml 末尾）
+# 生成器：python tools/install_hooks.py --print-dsh
+# 注意：patch 层不进热重载，贴完要重启 GUI；或 toggle include:memory-recall-hooks
+- insert:
+    - id: memory-recall-hooks
+      name: "@deepseek-ai/dsh-hooks-codex"
+      config:
+        configPath: %USERPROFILE%/.codex/hooks.json
+        defaultTimeoutMs: 20000

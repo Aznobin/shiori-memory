@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "& '%USERPROFILE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe' '%USERPROFILE%\\.agents\\skills\\user-memory\\tools\\recall.py' hook --host codex",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}
