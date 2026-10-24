@@ -161,6 +161,9 @@ SOURCE_MARKS = {
     "unknown": "（来源不明）",
 }
 
+# 退休标记：软删的唯一可见痕迹（2026-10-24）。`frag.py` 切片段时按这个前缀整行跳过。
+RETIRE_MARK = "（已退休 "
+
 
 def source_mark(source) -> str:
     if not isinstance(source, str):
@@ -254,7 +257,7 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
 
     for index, item in enumerate(items):
         op = item["op"]
-        if op not in ("add", "replace"):
+        if op not in ("add", "replace", "retire"):
             errors.append(
                 {
                     "index": index,
@@ -323,6 +326,53 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
                     "after": count_lines(lines),
                     "added": 1,
                     "section": f"（替换第 {hit + 1} 行）",
+                    "updated_line": anchor,
+                    "content": lines,
+                }
+            )
+            continue
+
+        # op=retire：软删（2026-10-24 她定的「删是软删，纯文本就算聊一年都没多少数据」）。
+        # 不抹掉正文，只在行尾挂退休标记；`frag` 切片段时跳过标记行，`memdb` 对应标 deleted。
+        # 依据 `90` §4「本库没有容量压力，删等于丢」+ 她对自己写库的纪律「禁用 DELETE，一律 UPDATE status」。
+        if op == "retire":
+            old = (item.get("old") or "").strip()
+            if not old:
+                errors.append({"index": index, "field": "old", "reason": "retire 必须给 old，指明哪一行退休"})
+                continue
+            hits = [i for i, ln in enumerate(lines) if old in ln]
+            if not hits:
+                errors.append(
+                    {"index": index, "field": "old", "reason": f"retire 找不到要退休的行：{old[:40]}"}
+                )
+                continue
+            if len(hits) > 1:
+                errors.append(
+                    {
+                        "index": index,
+                        "field": "old",
+                        "reason": f"retire 的 old 匹配到 {len(hits)} 行，写长一点只留一行",
+                    }
+                )
+                continue
+            hit = hits[0]
+            if RETIRE_MARK in lines[hit]:
+                skipped.append(
+                    {"index": index, "file": path.name, "reason": "这行已经退休过，不重复挂标记"}
+                )
+                continue
+            before_now = count_lines(lines)
+            lines[hit] = lines[hit].rstrip() + f"（已退休 {today}：{item['reason']}）"
+            stamp = max(item.get("updated") or item.get("date") or today, today)
+            anchor = set_updated(lines, stamp)
+            planned.append(
+                {
+                    "index": index,
+                    "path": path,
+                    "before": before_now,
+                    "after": count_lines(lines),
+                    "added": 0,
+                    "section": f"（第 {hit + 1} 行标退休）",
                     "updated_line": anchor,
                     "content": lines,
                 }

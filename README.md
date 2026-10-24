@@ -137,7 +137,7 @@ dist/               # 打包临时产物，随时可删
 | `python tools/memdb.py index` | 建 SQLite 全文索引（可选，提速用） |
 | `python tools/decay.py --tick` | 跑一次时间衰减结算（同一天只算一次） |
 | `python tools/decay.py --pairs` | 找「可能重复」的片段，只报不改 |
-| `python tools/memwrite.py payload.json` | **写记忆的正路**：过闸门 → 插到指定小节 → 改 `updated` → 补日志 → build + index（`--dry` 只看不写，`--changelog "摘要"` 顺手记一行） |
+| `python tools/memwrite.py payload.json` | **写记忆的正路**：过闸门 → 插到指定小节 → 改 `updated` → 补日志 → build + index（`--dry` 只看不写，`--changelog "摘要"` 顺手记一行）。三种 op：`add` 加一条、`replace` 换掉一行（靠 `old` 定位）、`retire` 软删一条（见下节） |
 | `python tools/write_gate.py` | 单独校验一批写入请求（`memwrite.py` 内部已经调它，手动跑是排查用） |
 | `python tools/import_notes.py 目录` | **从旧笔记/日记里搬内容**：切块 → 清理 → 按关键词路由到大类 → 落成草稿。默认只扫描，`--write` 落 `state/imports/`，人工标 `OK` 后 `--apply` 才真写进分类模块（走 `memwrite` 同一条闸门）。`--selftest` 自检，`--show N` 看打头几条 |
 | `python tools/framework.py --dry` | 打印将要发布的框架文件清单 |
@@ -176,6 +176,17 @@ python tools/import_notes.py --apply                # 审完标 OK 之后，把 
 2. **冷热三态**：`active` / `cold` / `archived`。长期没被召回的先降冷，再进归档；归档的不参与开局注入，但照样能搜到。状态写在 `state/decay.json`，`build` 不会把它冲掉。
 3. **每日结算幂等**：衰减按天算，同一天跑十遍也只扣一次，不会因为开十个对话就把库清空。
 4. **写入门（已接入 2026-10-24）**：`write_gate.py` 校验模块号、片段体长度、关键词、日期格式，不合格整批拒；`memwrite.py` 落盘前会先调它，不过闸门一条都不写。写入的正路是「产出 payload → 跑 `memwrite.py`」，不再手改模块文件。
+5. **软删，不硬删（2026-10-24）**：要说「这条别再用了」，不是把行从文件里抹掉——是 `memwrite.py` 的 `op: "retire"` 把它标成退休：
+
+   ```json
+   [{"module": "11", "op": "retire", "old": "读过哪本书第一章那半句", "reason": "跨模块重复：长期兴趣状态在 01，这里只记当天事件"}]
+   ```
+
+   `old` 定位那一行（必须唯一命中），`reason` 必填。写进去的效果是行尾挂一段 `（已退休 YYYY-MM-DD：理由）`，**正文一个字不删**；`frag.py build` 时含这个标记的行不进片段、不被检索命中，`memdb.py` 对应标 `deleted=1` 并留审计。
+
+   为什么要软删：本库是纯文本，一年的日记也就几兆——**没有容量压力，删等于丢**。硬删之后想追「当初为什么把它去掉」就只剩 `变更日志` 里一行字；软删的原文一直在，退休理由也一直在。真正硬删只在一件事上做：用户亲口说「不用记 / 忘掉」。
+
+   已经退休过一次的行不会被重复标记（`skipped`，不报错）。
 
 ## 隐私与安全
 

@@ -30,8 +30,13 @@ REF = ROOT / "references"
 
 # merge / weight 是设计里预留的两档，但写入端（memwrite.py 的 apply）至今没接：
 # 闸门放行、写入端拒收，等于墙上贴着「已支持」，照墙办事的人一定撞。
-# 2026-10-24 女儿审计第一条就是这个。闸门跟着收成真实支持的两值。
-OPS = ("add", "replace")
+# 2026-10-24 女儿审计第一条就是这个。闸门跟着收成真实支持的值。
+#
+# retire（2026-10-24 她定的：删是软删）：不是把行从 md 里抹掉，是在行尾挂
+# 「（已退休 YYYY-MM-DD：理由）」——正文永远留着，frag 切片时跳过，memdb 标 deleted=1。
+# 依据 `references/90` §4：「本库没有容量压力，删等于丢」；她对自己写库的纪律也是
+# 「禁用 DELETE，一律 UPDATE status」。理由必填，跟 source 一个逻辑。
+OPS = ("add", "replace", "retire")
 
 # source 四档（2026-10-24 shiori-old 定的，专治「会话里说话的人被默认当成库的主人」）：
 #   user-original    她本人原话，含她自己写下的文字（日记正文也算）
@@ -113,7 +118,11 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
 
     keys = item.get("keys")
     norm_keys: list[str] = []
-    if not isinstance(keys, list):
+    # op=retire 是软删（行尾挂「（已退休 …）」），不新增内容，所以不要求 keys / body。
+    _op_low = (item.get("op") or "").strip().lower() if isinstance(item.get("op"), str) else ""
+    if _op_low == "retire":
+        pass
+    elif not isinstance(keys, list):
         errors.append(err(index, "keys", "keys 必须是字符串数组"))
     elif not keys:
         errors.append(err(index, "keys", "keys 不能为空，至少要一个主题词"))
@@ -141,7 +150,9 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
 
     body = item.get("body")
     norm_body = ""
-    if not isinstance(body, str):
+    if _op_low == "retire":
+        pass
+    elif not isinstance(body, str):
         errors.append(err(index, "body", "body 必须是字符串"))
     else:
         text = body.replace("\r\n", "\n").strip("\n")
@@ -232,10 +243,22 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
             normalized[field] = item[field]
     if "weight" in item:
         normalized["weight"] = item["weight"]
-    # op=replace 要靠 `old` 定位被换掉的那一行，闸门得原样放行（2026-10-24 加 replace）。
+    # op=replace / retire 要靠 `old` 定位那一行，闸门得原样放行（2026-10-24）。
     old = item.get("old")
     if isinstance(old, str) and old.strip():
         normalized["old"] = old.strip()
+
+    # op=retire 必须带理由：删记忆比写记忆危险，不能让「退休」静悄悄发生。
+    op_norm = (item.get("op") or "").strip().lower()
+    if op_norm == "retire":
+        reason = item.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            errors.append(
+                err(index, "reason", "retire 必须给 reason：为什么让它退休（会写进行尾标记，以后能看见）")
+            )
+        else:
+            normalized["reason"] = reason.strip()
+
     return normalized, []
 
 
