@@ -1,0 +1,5 @@
+{
+  "python": "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+  "tool": "C:\\Users\\%USERNAME%\\.agents\\skills\\user-memory\\tools\\recall.py",
+  "timeout": 20
+}
