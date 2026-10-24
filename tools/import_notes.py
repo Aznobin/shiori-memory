@@ -498,7 +498,7 @@ def cmd_scan(target: Path, args) -> int:
     return 0
 
 
-def cmd_apply(path: Path, dry: bool) -> int:
+def cmd_apply(path: Path, dry: bool, mem_source: str = "user-original") -> int:
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("_importer_memwrite", TOOLS / "memwrite.py")
@@ -520,7 +520,8 @@ def cmd_apply(path: Path, dry: bool) -> int:
         src = (it.get("source") or "").strip()
         if src and "（源：" not in body:
             body = f"{body}（源：{src}）"
-        row = {"module": it["module"], "op": "add", "keys": it["keys"], "body": body}
+        row = {"module": it["module"], "op": "add", "keys": it["keys"], "body": body,
+               "source": mem_source}
         if "date" in it:
             row["date"] = it["date"]
         payload.append(row)
@@ -588,6 +589,12 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--write", action="store_true", help="把草稿写到 state/imports/")
     ap.add_argument("--apply", metavar="草稿文件", help="把标了 OK 的草稿批量写进模块")
     ap.add_argument("--dry", action="store_true", help="配合 --apply 预演，不落盘")
+    ap.add_argument(
+        "--source",
+        default="user-original",
+        choices=["user-original", "test-transcript", "sample", "unknown"],
+        help="导入的条目按哪种来源写（默认 user-original＝用户本人写的字；演练/样本转来的要改）",
+    )
     ap.add_argument("--limit", type=int, default=None, help="最多产出多少条草稿")
     ap.add_argument("--show", type=int, default=12, help="预览前几条")
     ap.add_argument("--selftest", action="store_true", help="跑内置自检，不碰真实数据")
@@ -596,7 +603,7 @@ def main(argv: list[str]) -> int:
     if args.selftest:
         return selftest()
     if args.apply:
-        return cmd_apply(Path(args.apply), args.dry)
+        return cmd_apply(Path(args.apply), args.dry, args.source)
     if not args.target:
         ap.print_help()
         return 1
