@@ -447,10 +447,14 @@ def rebuild() -> int:
 
 
 def apply(via_git: bool = False, dry: bool = False) -> int:
-    local, remote = local_version(), check(quiet=True)["remote"]
-    if remote and parse_ver(remote) <= parse_ver(local):
-        out(f"已经是最新（本地 {local}），不用换。")
-        return 0
+    # reexec 那一遍必须绕过版本检查：第一遍已经把 VERSION 写成新版了，
+    # 再按版本比就「已是最新」直接返回，新规则永远不会生效。
+    # 2026-10-24 shiori-old 实测：两行输出都在，但第二遍什么都没做。
+    if not os.environ.get("UPDATE_REEXEC"):
+        local, remote = local_version(), check(quiet=True)["remote"]
+        if remote and parse_ver(remote) <= parse_ver(local):
+            out(f"已经是最新（本地 {local}），不用换。")
+            return 0
     # 默认走「下载包 → 按 manifest 逐文件换」：骨架库是发布物，每次重建提交历史，
     # 用 git pull 会撞上历史不连续。manifest 路线对 zip 用户和 git 用户是同一套行为。
     if via_git:
