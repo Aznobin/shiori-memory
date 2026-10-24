@@ -1,0 +1,121 @@
+---
+name: shiori-memory
+description: 纯 Markdown 的长期记忆库（模块化 + 片段检索）。涉及个性化交流、偏好与背景回忆、学习或项目进度延续、写入与维护记忆时使用。先读本文件（主文件与路由），再按命中只加载那一个模块，不要整库读。
+---
+
+# Shiori Memory
+
+一个**空骨架**：工具链、协议、模板都在，里面没有别人的任何记忆。
+
+`references/` 是真源，`fragments/` 是切出来的检索单元，开局只装用得上的几条。
+
+拿到手第一件事：把随包的 `AGENTS.md` 复制到你的工作目录根（那是入口，也是"每次新会话怎么找到这里"的说明）。
+
+## 0. 读法（最高优先级）
+
+- **本文件只放协议与路由**，不放日常条目；正文全在 `references/` 里，一次只读命中的那个模块
+- **改了模块先重建索引**：`python tools/frag.py build`，别凭印象翻文件
+- **不要整库读**：先 `search` 再按路径读单个文件；`变更日志`、`_巡检记录`、`archive/` 只在维护时看
+- **库是空的也能用**：刚拿到时没有任何主题模块，照 §4 建第一个
+
+## 1. 三条硬规矩
+
+1. **`references/` 是唯一真源** —— `fragments/` 每次 `build` 全删重建，手改片段目录下一轮就没了
+2. **每次写入都要落到一个具体模块**，并在 `变更日志.md` 补一行（日期 + 改了什么）
+3. **没被确认的推测先扔 `_待确认.md`**，不当事实用；拿不准就写进去等下次确认
+
+## 2. 开局三步
+
+```bash
+python tools/frag.py build          # 1. 建索引（改了模块必跑）
+python tools/frag.py search 关键词   # 2. 查命中的片段
+```
+
+```text
+3. 按 search 给出的路径只读那一个片段文件，读完再说
+```
+
+`python tools/memdb.py index` 会额外建一份 SQLite 全文索引，片段上千之后查得更快，不是必需。
+
+## 3. 编号与目录
+
+| 范围 | 装什么 |
+| --- | --- |
+| `01`–`89` | **主题模块**，你自己的：偏好、背景、学习线、项目、环境……怎么分由你定 |
+| `90`–`99` | **机制文档**，随包发：检索、迁移、打包、注入、安全、评测、架构大纲 |
+| `_模板` `_待确认` `_巡检记录` `_复核清单` | 结构件，下划线开头，不算模块 |
+| `变更日志` `CATALOG` | 结构件，不带编号 |
+
+新增主题模块往后接号，别插空号；`CATALOG.md` 由 `python tools/catalog.py` 生成，别手改。
+
+**人格 / 语气 / 说话风格要不要建、建在哪个号，由你决定** —— 这个库不预设任何口吻。
+
+## 4. 建第一个模块
+
+```bash
+cp references/_模板.md references/01-我的偏好.md
+python tools/frag.py build
+```
+
+模块文件：开头一行 `# 标题`，往下按段落写，段落之间空一行。`build` 按段落切片段，**一段超过 4 行就中间切开**，切出来的兄弟片段标题尾部带 `（1）（2）（3）`，在索引里共享同一个 `part.base`。
+
+## 5. 写入协议
+
+写入走两道闸：`write_gate.py` 校验，`memwrite.py` 落盘（内部会先调闸门）。正路是**产出结构化 payload 让程序拼接**，不要手改模块文件：
+
+```bash
+python tools/memwrite.py 请求.json --changelog "摘要"
+```
+
+payload 是数组，每项写清 `module`（模块号）、`op`（当前只支持 `add`）、`keys`、`section`（小节标题，可选）、`body`（1~6 行正文）。脚本负责找小节、去重、插入、改 `updated`、补变更日志、跑 build + index；整批里只要一条不过闸门，**一条都不写**。`--dry` 只看不写。
+
+模块号不在 `references/` 现有清单里、片段体超长、含代码围栏、日期不是 `YYYY-MM-DD`、关键词为空 —— 任意一条不过就整批拒，并给出中文原因。
+
+## 6. 别让它越堆越肿
+
+| 机制 | 做法 |
+| --- | --- |
+| 时间衰减 | 片段带 `updated` 日期，检索乘 `0.7 + 0.3 × recency`，半衰期 90 天。老的还在，只是不抢前排 |
+| 冷热三态 | `active` / `cold` / `archived`，状态存 `state/decay.json`，`build` 不会冲掉 |
+| 每日结算 | `python tools/decay.py --tick`，同一天重复跑只算一次（幂等） |
+| 重复巡检 | `python tools/decay.py --pairs` 找疑似重复，只报不改 |
+| 同源折叠 | 同一 `part.base` 的多片在 `search` 输出里折成一行，加 `--expand-parts` 展开 |
+
+## 7. 常用命令
+
+| 命令 | 用途 |
+| --- | --- |
+| `frag.py build` / `lint` / `stats` | 重建索引 / 体检 / 看规模 |
+| `frag.py search 词` | 查片段（默认折叠同源） |
+| `frag.py pack` | 打包成可直接塞进 prompt 的文本 |
+| `frag.py auto` | 一次给「开局要读的那几块」 |
+| `memdb.py index` | 建 SQLite 全文索引（可选） |
+| `decay.py --tick` / `--pairs` | 衰减结算 / 重复巡检 |
+| `memory_check.py` | 体检：坏元数据、未登记模块、超长文件、台账 |
+| `import_notes.py 目录` | 从旧笔记搬内容：切块 → 路由 → 落草稿，人工标 `OK` 才写 |
+| `write_gate.py` | 单独校验一批写入请求（排查用） |
+
+## 8. 要给别人的话
+
+```bash
+python tools/framework.py --dry     # 看清单、体积、隐私预演
+python tools/framework.py --build   # 生成去个人化骨架（隐私门命中即中止）
+```
+
+隐私门会扫私人关键词（真名、机器名、项目名、日记路径），命中就停，**不许先提交再补**。
+
+## 9. 升级骨架
+
+```bash
+python tools/update.py check     # 有没有新版（24 小时问一次；离线静默跳过）
+python tools/update.py apply     # 换骨架；只动骨架文件，你改过的写成 .new 让你自己合
+python tools/update.py rollback  # 换坏了退回去
+```
+
+更新**只覆盖骨架清单里的文件**（工具、模板、机制文档、这份说明），`01`–`89` 一个字节都不碰。
+
+## 10. 版本
+
+`0.3.3` · MIT License · by Firin Chan & Aznobin
+
+适配范围：在 DeepSeek Harness（Windows 11 + Python 3.12）上验证过；别的助手要用得自己接，没在别处验证。
