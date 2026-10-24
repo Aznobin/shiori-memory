@@ -502,7 +502,21 @@ def main() -> int:
             out(line)
         return 0
     if args.action == "apply":
-        return apply(via_git=args.via_git, dry=args.dry)
+        me = ROOT / "tools" / "update.py"
+        before = hashlib.sha256(me.read_bytes()).hexdigest() if me.is_file() else ""
+        rc = apply(via_git=args.via_git, dry=args.dry)
+        # 升级器自己也在包里：这次 apply 跑的是盘上的旧代码，「结构件跳过、协议件 .new」
+        # 这些新规则要到下一次升级才生效。所以如果 update.py 本次被换了，立刻用新版再跑一遍。
+        # 不这么做的话，第一次升级永远走旧规则（2026-10-24 shiori-old 实测）。
+        if rc == 0 and not args.dry and not os.environ.get("UPDATE_REEXEC"):
+            after = hashlib.sha256(me.read_bytes()).hexdigest() if me.is_file() else ""
+            if after and after != before:
+                out("🔁 升级器自己也换了，用新版再跑一遍升级（让新规则当次生效）……")
+                env = dict(os.environ, UPDATE_REEXEC="1")
+                again = [sys.executable, str(me), "apply", *(["--git"] if args.via_git else [])]
+                r = subprocess.run(again, cwd=str(ROOT), env=env)
+                out("✓ 第二遍（新版逻辑）完成。" if r.returncode == 0 else f"⚠️ 第二遍返回 {r.returncode}，骨架已换好，规则可能还是旧的。")
+        return rc
     if args.action == "rollback":
         return rollback()
     if args.action == "status":

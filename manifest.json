@@ -1,10 +1,10 @@
 {
   "files": {
-    "AGENTS.md": "3d9bd1562919d42f7a6e051912419bf5d7906f3a47818291e820c27a67cd9341",
+    "AGENTS.md": "80829bc1bbadf529413defadb47af1b8747c5a2bc8ff270e7cb86fe00932ab6a",
     "LICENSE": "76bed9a79e410bcee5b3f47f3929829e54a8e360b872d6fdc5acc0baae2e9ae2",
-    "README.md": "c38960a6fade99a193f856a50c3c971b98abc82fd101825030d7d425f5ddbddb",
-    "SKILL.md": "12b38e3328be47632e6e8fe4c51d9ee11e1dfed69f44ba5578873d7377e14290",
-    "VERSION": "674321dc05c5db36c4fe5c42ad6c138ae7eba5c67dd6b40321316589b6c2f9b8",
+    "README.md": "e9051cd9d4b6ec04cb54db532816c08c989c84d0062e9efe379efdbd03bdcb31",
+    "SKILL.md": "b44eed7ed3d63a5252af52137af6844214914e647d02ae3aa9e00a65bf6d381e",
+    "VERSION": "304ee74090c149b24dd0a0c279da94cdff8469db1dda00a60560626a54c4cfec",
     "bin/recall-hook.cmd": "8b65739b8389275959133d9ff7fe3ca99ae109eca56f436bc135d4f2f5eb37e3",
     "bin/recall-hook.sh": "a9eb77e339bb2ec2b0cdd39d1dc49aeecabf04dff84fdd52b47e4973baf16368",
     "config.example.json": "90bbde4c96c01b026c6820cfb43a5c7c605991d1efc2bdfe64bfd1a24892839e",
@@ -65,11 +65,11 @@
     "tools/synonyms.py": "51daf126947a8dd240cd161d88a2fa461cd2a93cd2d6890cbeac861f3833ae23",
     "tools/thinkdig.py": "043cc749a1c5657946d4f4806c36722283818261ad4b2938c17b6dea1fa76a85",
     "tools/tick.py": "4cd107e54ebdc06582cb14562d95d49d5566ef5ec0bd79e097d6c0feac493a33",
-    "tools/update.py": "05ed93560510f8f3b78baf40d59b0978b6f737acb2443a13a014aaeb479203bf",
+    "tools/update.py": "cea8b7a1f8d37783fe45c98c4dd5e4274d4a9d2944eccaf183a5971d709e971b",
     "tools/verify_pack.py": "3c65c5bbfa8676224fb41c1e28616159bca225970e7d03659e5f69c70afd832e",
     "tools/write_gate.py": "a1ad7b35df96cd5eed23f7f7e879c7e4138b4dadd5a58e440d8701284aed49fd"
   },
   "min_python": "3.10",
   "repo": "https://github.com/Aznobin/shiori-memory",
-  "version": "0.3.14"
+  "version": "0.3.15"
 }

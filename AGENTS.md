@@ -34,16 +34,19 @@ $env:PYTHONIOENCODING='utf-8'
 - 跑 `.ps1`：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File <脚本>`（有的环境没有 `pwsh` 命令，只有 `powershell.exe`）
 - `setup.ps1` 跑完**已经建过派生层**（`fragments\index.json`、`tools\memdb.sqlite3`、`state\decay.json` 都在），一打开不是「没索引」的状态；但每轮开工照样先 `frag build` 刷一遍
 
-## 1. 开局五步
+## 1. 开局六步
 
 ```bash
 python tools/memgit.py check          # 1. 库状态（没仓库就「跳过」，正常）
-python tools/frag.py build            # 2. 建/刷新索引（改了模块必跑）
-python tools/frag.py search 关键词      # 3. 按这一轮的实际话题查
+python tools/update.py hint           # 2. 骨架有没有新版（一行结论，念给用户听；同一版本只念一次）
+python tools/frag.py build            # 3. 建/刷新索引（改了模块必跑）
+python tools/frag.py search 关键词      # 4. 按这一轮的实际话题查
 ```
 
-4. 按 `search` 给出的路径**只读命中的那一个**模块（或片段文件），读完再说话
-5. 零命中就说「没记」，不要凭印象编
+5. 按 `search` 给出的路径**只读命中的那一个**模块（或片段文件），读完再说话
+6. 零命中就说「没记」，不要凭印象编
+
+`hint` 没吐东西就是没有新版，一个字都不用提；吐了就把那一行原话念给用户，让他自己决定升不升——不要自作主张跑 `apply`。
 
 **两种检索入口别混**：`memread.py "话题"` 是模块级整篇（命中一个大类就把那份全读进来，适合「关于我你知道什么」）；`frag.py search 关键词` 是片段级（精确定位到某一句，适合「接口联调怎么解决的」）。日常先用 `frag.py search`，要整篇背景再用 `memread.py`。
 
@@ -109,10 +112,15 @@ python tools/routes.py      # 扫你的模块，改写下面这个块
 骨架会更新，你的内容不会被动：
 
 ```bash
-python tools/update.py check     # 有没有新版（24 小时问一次，没配更新源会优雅退出）
-python tools/update.py apply     # 换骨架（只动骨架文件，你改过的会留 .new 给你合）
-python tools/update.py rollback  # 换坏了退回去
+python tools/update.py check         # 有没有新版（24 小时问一次，没配更新源会优雅退出）
+python tools/update.py apply --dry   # 先预演：说清会覆盖什么、留几个 .new，一个字不动盘
+python tools/update.py apply         # 换骨架
+python tools/update.py rollback      # 换坏了退回去（自动备份在 state/backup/）
 ```
+
+三档待遇：框架件（`tools/` `bin/` `templates/` `setup.ps1` `SKILL.md`）**无条件覆盖**；结构件（`变更日志` `CATALOG` `_巡检记录` `_待确认` `_路由详表` `_合并候选` `_模板`）**一个字节都不动**；协议件 `references/90`–`99` 冲突时写 `.new` 让你自己合（骨架那份是脱敏版，直接覆盖会把你写的原话换成「（已隐去）」）。
+
+**升级器自己也在包里**：你第一次升级跑的是盘上那份旧 `update.py`，规则可能还是旧的。0.3.15 起 `apply` 结束时会发现它自己被换了，自动用新版重跑一遍；吃到 0.3.14 及更早的，升完再跑一次 `apply --dry` 确认。
 
 ## 7. 出问题怎么办
 
