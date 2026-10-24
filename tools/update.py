@@ -274,6 +274,25 @@ def is_framework_path(rel: str) -> bool:
     return rel.startswith(FRAMEWORK_DIRS) or rel in FRAMEWORK_FILES
 
 
+# 用户自己长出来的结构件：升级永远不碰它们。
+# 教训（2026-10-24 新设备 shiori-old 实测）：`变更日志` 是 `distribute: reset`，
+# 包里只有表头，apply 一覆盖她 24 条日志全没了；`CATALOG` 是主库目录，覆盖成 55 模块。
+# 这些东西的正确归属是「用户的库」，不是「骨架」。
+USER_OWNED = (
+    "references/变更日志.md",
+    "references/CATALOG.md",
+    "references/_巡检记录.md",
+    "references/_待确认.md",
+    "references/_路由详表.md",
+    "references/_合并候选.md",
+    "references/_模板.md",
+)
+
+
+def is_user_owned(rel: str) -> bool:
+    return rel in USER_OWNED
+
+
 def apply_via_manifest(dry: bool = False) -> int:
     zip_src = zip_url(raw_base())
     if not zip_src:
@@ -343,8 +362,14 @@ def apply_via_manifest(dry: bool = False) -> int:
                 dst.write_bytes(old_bytes)
             # 判断「用户改过没」：有 git 问 git；没 git 就对比上次清单里的 sha256。
             # 两样都没有（第一次更新）判断不了，那就覆盖 + 留备份，并在输出里说清楚。
+            if is_user_owned(rel):
+                continue  # 用户自己的结构件：升级一个字都不动
             if is_framework_path(rel):
                 user_touched = False
+            elif rel.startswith("references/9"):
+                # 协议件（90-99）常带用户自己写进去的原话，骨架版是脱敏版，
+                # 直接覆盖等于把她的原话换成「（已隐去）」——降级。写 .new 让她自己挑。
+                user_touched = True
             elif in_git_repo():
                 user_touched = bool(git("status", "--porcelain", "--", rel).stdout.strip())
             elif prev_files.get(rel):
@@ -396,6 +421,8 @@ def rebuild() -> int:
     for script, args in (
         ("tools/frag.py", ["build"]),
         ("tools/memdb.py", ["index"]),
+        # CATALOG 是生成物，升级后不重建就会留着骨架里的主库目录（教训 2026-10-24）。
+        ("tools/catalog.py", []),
     ):
         path = ROOT / script
         if not path.is_file():
