@@ -77,6 +77,9 @@ if ($Workspace) {
     } elseif (Test-Path -LiteralPath (Join-Path $Tpl 'AGENTS.md')) {
         $body = Get-Content -LiteralPath (Join-Path $Tpl 'AGENTS.md') -Raw -Encoding UTF8
         $body = $body.Replace('<笔记库>', $Workspace).Replace('<代码仓库>', $cfg.paths.codeRepo)
+        # 2026-10-24：public-AGENTS.md 里 §0 与 §0.2 的库路径原来是写死的，
+        # 分发包解压到别处后这两处全是错的（接手旧库第一件事就撞上）。
+        $body = $body.Replace('<记忆库>', $Root)
         Set-Content -LiteralPath $agents -Value $body -Encoding UTF8
         Write-Output '工作区：'
         Step ('已生成 ' + $agents)

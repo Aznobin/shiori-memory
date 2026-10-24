@@ -229,12 +229,12 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
 
     for index, item in enumerate(items):
         op = item["op"]
-        if op != "add":
+        if op not in ("add", "replace"):
             errors.append(
                 {
                     "index": index,
                     "field": "op",
-                    "reason": f"op={op} 还没接写入链路，仍走人工；本脚本当前只做 add",
+                    "reason": f"op={op} 还没接写入链路，仍走人工；本脚本当前只做 add / replace",
                 }
             )
             continue
@@ -249,6 +249,58 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
             work[path] = {"lines": lines, "crlf": crlf, "before": len(lines)}
         state = work[path]
         lines = state["lines"]
+
+        # 2026-10-24：`add` 只能加不能改——女儿给自己改名（三三 → 綴）时旧行删不掉，
+        # 只能手改文件、日志还得人工补。`replace` 补这一环：`old` 唯一定位一行，正文换掉。
+        if op == "replace":
+            old = (item.get("old") or "").strip()
+            if not old:
+                errors.append(
+                    {
+                        "index": index,
+                        "field": "old",
+                        "reason": "replace 必须给 old：写能唯一定位那一行的片段",
+                    }
+                )
+                continue
+            hits = [i for i, ln in enumerate(lines) if old in ln]
+            if not hits:
+                errors.append(
+                    {"index": index, "field": "old", "reason": f"replace 找不到要换的行：{old[:40]}"}
+                )
+                continue
+            if len(hits) > 1:
+                errors.append(
+                    {
+                        "index": index,
+                        "field": "old",
+                        "reason": f"replace 的 old 匹配到 {len(hits)} 行，写长一点只留一行",
+                    }
+                )
+                continue
+            new_line = to_bullets(item["body"])[0]
+            new_line = re.sub(r"^(?:-|\*|\|)\s+", "", new_line, count=1)
+            hit = hits[0]
+            lead = re.match(r"^(\s*(?:-|\*|\|)\s+)", lines[hit])
+            prefix = lead.group(1) if lead else "- "
+            before_now = len(lines)
+            lines[hit] = prefix + new_line
+            stamp = item.get("updated") or item.get("date") or today
+            anchor = set_updated(lines, stamp)
+            planned.append(
+                {
+                    "index": index,
+                    "path": path,
+                    "before": before_now,
+                    "after": len(lines),
+                    "added": 1,
+                    "section": f"（替换第 {hit + 1} 行）",
+                    "updated_line": anchor,
+                    "content": lines,
+                }
+            )
+            continue
+
         bullets = to_bullets(item["body"])
 
         if already_there(lines, bullets):
@@ -641,19 +693,24 @@ def main(argv: list[str]) -> int:
             print("  ✓ 变更日志补了一行")
 
     if not args.no_build:
-        # 2026-10-24：这两个重建互不依赖——frag build 切 references 生成 index.json，
-        # memdb index 直接读 references 建 sqlite，谁也不吃谁的产物。串行要 630ms，
-        # 其中一半是白白等第二个 Python 进程启动。改成并发，压到 ~400ms。
+        # 2026-10-24：这几个重建互不依赖——frag build 切 references 生成 index.json，
+        # memdb index 直接读 references 建 sqlite，catalog 只数行数，谁也不吃谁的产物。
+        # 串行要 630ms，其中一半是白白等 Python 进程启动。改成并发，压到 ~400ms。
+        # catalog 也是这轮加进来的：原来只有 `--new-module` 才刷 CATALOG，普通写入后
+        # 目录页的行数就停在旧值，拿它当导航会数错（新设备演练第 6 条）。
         from concurrent.futures import ThreadPoolExecutor
 
-        with ThreadPoolExecutor(max_workers=2) as ex:
+        with ThreadPoolExecutor(max_workers=3) as ex:
             f1 = ex.submit(run, [sys.executable, "tools/frag.py", "build"], root)
             f2 = ex.submit(run, [sys.executable, "tools/memdb.py", "index"], root)
+            f3 = ex.submit(run, [sys.executable, "tools/catalog.py"], root)
             code, out = f1.result()
             code2, out2 = f2.result()
+            code3, out3 = f3.result()
         print(f"  {'✓' if code == 0 else '✗'} frag.py build：{out.splitlines()[-1] if out else ''}")
         print(f"  {'✓' if code2 == 0 else '✗'} memdb.py index：{out2.splitlines()[-1] if out2 else ''}")
-        if code != 0 or code2 != 0:
+        print(f"  {'✓' if code3 == 0 else '✗'} catalog.py：{out3.splitlines()[-1] if out3 else ''}")
+        if code != 0 or code2 != 0 or code3 != 0:
             return 1
     return 0
 

@@ -42,6 +42,11 @@ MIN_CHARS = 20          # 太短的段落并入上一片段
 SENSITIVE_MODULES = {"10", "22", "23"}
 MAIN_MODULES = {"89", "87", "88", "02", "02a", "07", "83", "86", "85", "90", "77", "97", "98", "99"}
 SKIP_FILES = {"CATALOG.md", "变更日志.md"}
+# 2026-10-24：`stats` 报的「模块数」改成文件口径，与 catalog.py / memory_check.py 相等（23）；
+# 本文件只切其中能切的那部分（`变更日志` 按日志处理、不切片），所以另报一个「有片段」的数。
+# 排除表与 catalog.py 的 EXCLUDE 逐项对齐，改一处就一起改。
+MODULE_FILES_EXCLUDE = ("_模板.md", "CATALOG.md", "_复核清单.md", "_巡检记录.md", "_路由详表.md",
+                        "_合并候选.md")
 SLICE_UNDERSCORE = {"_待确认.md"}   # inbox 里的半句话也要搜得到，否则写进去等于没写（2026-10-20）
 
 DATE_CACHE = FRAG / ".dates.json"   # 行级日期缓存；build 只删 *.md，这份 json 留着（2026-10-23）
@@ -1010,7 +1015,8 @@ def cmd_stats(_: argparse.Namespace) -> int:
     for i in idx:
         by_mod[i["module"]] = by_mod.get(i["module"], 0) + 1
     top = sorted(by_mod.items(), key=lambda kv: -kv[1])[:5]
-    print(f"片段 {len(idx)} 个 · 模块 {len(by_mod)} 个 · 主 {mains} / 次 {len(idx) - mains}")
+    mods = sum(1 for p in REF.glob("*.md") if p.name not in MODULE_FILES_EXCLUDE)
+    print(f"片段 {len(idx)} 个 · 模块 {mods} 个（有片段 {len(by_mod)}）· 主 {mains} / 次 {len(idx) - mains}")
     print(f"正文 {chars:,} 字 · 平均 {chars // max(len(idx), 1)} 字/片段 · 行数中位 {lines[len(lines) // 2]}、最长 {lines[-1]}")
     print(f"敏感片段 {sens} 个（检索时排除）· 模块间引用 {refs} 条")
     print("片段最多的模块：" + "，".join(f"{m} {n}" for m, n in top))

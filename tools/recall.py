@@ -345,6 +345,28 @@ def looks_like_shift(text):
     return any(w in low for w in SHIFT_WORDS)
 
 
+def delegate_prefixes():
+    """派活前缀（prompt 首行命中就跳过注入）。从 memory.config.json 的
+    recall.delegatePrefix 读，字符串或数组都认；没配就是空。
+
+    2026-10-24 为什么改成读配置：这里原来硬编码了账号名，而 recall.py 会进分发包，
+    打包清洗把名字换成占位符之后，判断就成了 `startswith("<你的名字或 ID>：")`，
+    永远匹配不上——别人的包里这段是死的。配置没配就没有任何前缀，也不误跳过。
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        with open(os.path.join(root, "memory.config.json"), encoding="utf-8-sig") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return ()
+    raw = (data.get("recall") or {}).get("delegatePrefix")
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return ()
+    return tuple(s.strip() for s in raw if isinstance(s, str) and s.strip())
+
+
 def should_inject(st, text):
     """返回 (要不要, 理由)。2026-10-20 她要求：每轮都注入，至少带指针行。"""
     if OFF:
@@ -494,6 +516,24 @@ def cmd_hook(a):
         text = a.text
     st = load_state(session)
     st["turn"] = int(st.get("turn", 0)) + 1
+    # 首行是派活前缀（见 AGENTS.md §0）→ 这是我的子智能体任务，子智能体本来就跳过
+    # 整条记忆链，再把我库里的指针注进去只会污染别人的会话——2026-10-24 新设备验收时
+    # 女儿每轮都被这条注入，得先判一次「作废」才敢干活。
+    # 前缀本身从 memory.config.json 读（recall.delegatePrefix），不进包也不硬编码名字。
+    prefixes = delegate_prefixes()
+    head = text.lstrip()
+    if prefixes and any(head.startswith(p) for p in prefixes):
+        st["log"] = st.get("log", [])[-19:] + [{
+            "at": round(time.time(), 3),
+            "turn": st["turn"],
+            "q": (text or "")[:80],
+            "gate": "delegated",
+            "why": "delegated",
+            "items": 0,
+            "chars": 0,
+        }]
+        save_state(st)
+        return 0
     ok, reason = should_inject(st, text)
     # 「跑起来了」和「真的注进去了」是两件事。2026-10-20 栽在这儿两次：
     # 只看 exitCode 就宣称通了，实际那一轮 stdout 一个字都没有。

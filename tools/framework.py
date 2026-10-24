@@ -24,6 +24,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 WORKTREE = ROOT / ".framework"
 BRANCH = "framework"
+# 发行版线：framework 的每次提交 --no-ff merge 进 Release，merge commit 署名她
+# （2026-10-24 她定的：merge 名字写她的，改动写 Firin）。推远端时 Release 就是 skeleton 的 main。
+RELEASE = "release"
 # 版本号单一来源：只读仓库根的 VERSION，产物里的 VERSION 也用这个值重写。
 # 以前这里硬编码过一次 "0.3.0"、VERSION 文件又是 "0.3.1"，同一次发布里两个版本号对不上。
 FRAMEWORK_VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip() or "0.0.0"
@@ -344,6 +347,20 @@ def repo_url() -> str:
     return f"https://github.com/{m.group(1)}/{m.group(2)}" if m else ""
 
 
+def release_author() -> tuple[str, str]:
+    """发版 merge 的署名：从 memory.config.json 的 git.releaseName / git.releaseEmail 读。
+
+    2026-10-24 她定的「merge 名字写我的，改动写你的 Firin」。名字不能硬编码进
+    framework.py——那份脚本本身会进分发包，硬编码等于把她的 git 身份发给所有人。
+    """
+    try:
+        data = json.loads((ROOT / "memory.config.json").read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return "Release", "release@local"
+    g = data.get("git") or {}
+    return (str(g.get("releaseName") or "Release"), str(g.get("releaseEmail") or "release@local"))
+
+
 def plan() -> tuple[list[tuple[str, bytes]], list[str], int]:
     """在内存里生成产物（相对路径, 字节），不写盘。返回 (files, dropped, 原始体积)。"""
     mapping = load_mapping()
@@ -451,10 +468,8 @@ def clean_worktree() -> None:
     git("worktree", "prune")
     if WORKTREE.exists():
         shutil.rmtree(WORKTREE)
-    if git("rev-parse", "--verify", BRANCH).returncode == 0:
-        git("branch", "-D", BRANCH)
-    if git("rev-parse", "--verify", TAG).returncode == 0:
-        git("tag", "-d", TAG)
+    # 2026-10-24 她定的：发行版走 merge 线，framework / release 两个分支都留着，
+    # 不再每次 -D 重建。老 tag 会被新的 -f 覆盖，别的 tag 不动。
 
 
 def build(push: bool, push_public: bool = False) -> int:
@@ -468,15 +483,28 @@ def build(push: bool, push_public: bool = False) -> int:
         return 2
 
     clean_worktree()
-    r = git("worktree", "add", "--detach", str(WORKTREE))
+    has_branch = git("rev-parse", "--verify", BRANCH).returncode == 0
+    if has_branch:
+        r = git("worktree", "add", str(WORKTREE), BRANCH)
+    else:
+        r = git("worktree", "add", "--detach", str(WORKTREE))
     if r.returncode != 0:
         print("❌ git worktree add 失败：", r.stderr.strip())
         return 1
-    r = git("checkout", "--orphan", BRANCH, cwd=WORKTREE)
-    if r.returncode != 0:
-        print("❌ checkout --orphan 失败：", r.stderr.strip())
-        return 1
-    git("rm", "-r", "-q", "-f", ".", cwd=WORKTREE)
+    if not has_branch:
+        r = git("checkout", "--orphan", BRANCH, cwd=WORKTREE)
+        if r.returncode != 0:
+            print("❌ checkout --orphan 失败：", r.stderr.strip())
+            return 1
+    # 清空工作树（保留 .git），再按框架清单铺一遍。不再 `git rm` —— 分支上有历史时
+    # 索引里只有已提交的文件，`rm -r .` 对新增/删除混着的情况会报错。
+    for p in WORKTREE.iterdir():
+        if p.name == ".git":
+            continue
+        if p.is_dir():
+            shutil.rmtree(p)
+        else:
+            p.unlink()
 
     for rel, raw in files:
         dst = WORKTREE / rel
@@ -485,7 +513,9 @@ def build(push: bool, push_public: bool = False) -> int:
 
     git("add", "-A", cwd=WORKTREE)
     msg = f"framework: {FRAMEWORK_VERSION}（去个人化框架分支：协议件 + 工具链 + 模板）"
-    r = git("commit", "-q", "-m", msg, cwd=WORKTREE)
+    # 2026-10-24 她定的：改动提交署名 Firin，merge（发版）署名她。
+    r = git("-c", "user.name=Firin", "-c", "user.email=firin@local",
+            "commit", "-q", "-m", msg, cwd=WORKTREE)
     if r.returncode != 0:
         print("❌ commit 失败：", (r.stderr or r.stdout).strip())
         return 1
@@ -493,17 +523,30 @@ def build(push: bool, push_public: bool = False) -> int:
     git("tag", "-f", TAG, sha)
 
     print(f"✅ framework 分支已建：{len(files)} 文件 / {total / 1024:.0f} KB（提交 {sha}，tag {TAG}）")
+
+    # 发行版 merge 线：framework 收每次发版的内容（署名 Firin），再 --no-ff merge 进 release
+    # （merge commit 署名她）。git 图上一眼看出哪一版是哪次发的，也不再用 force 覆盖远端。
+    if git("rev-parse", "--verify", RELEASE, cwd=WORKTREE).returncode == 0:
+        git("checkout", "-q", RELEASE, cwd=WORKTREE)
+    else:
+        git("checkout", "-q", "-b", RELEASE, cwd=WORKTREE)
+    merge_name, merge_mail = release_author()
+    r = git("-c", f"user.name={merge_name}", "-c", f"user.email={merge_mail}",
+            "merge", "--no-ff", "-m", f"发布 {FRAMEWORK_VERSION}", BRANCH, cwd=WORKTREE)
+    if r.returncode == 0:
+        msha = git("rev-parse", "--short", "HEAD", cwd=WORKTREE).stdout.strip()
+        print(f"✅ release 合并提交：{msha}（merge 署名 {merge_name}）")
+    else:
+        print("⚠️ release merge 没成功：", (r.stderr or r.stdout).strip()[:200])
     if push:
-        # 同样是 orphan 重建，框架分支的远端也要 force（第一次推是新建，之后每次都不快进）
-        r = git("push", "origin", f"{BRANCH}", f"refs/tags/{TAG}:refs/tags/{TAG}", "--force")
-        print("push:", "ok" if r.returncode == 0 else f"offline（{r.stderr.strip()[:120]}）")
+        r = git("push", "origin", f"{BRANCH}", f"{RELEASE}",
+                f"refs/tags/{TAG}:refs/tags/{TAG}")
+        print("push:", "ok" if r.returncode == 0 else f"offline / 被拒（{(r.stderr or r.stdout).strip()[:160]}）")
     if push_public:
-        # 每次都从 orphan 重建，提交历史与上一版无关，所以必须 force。
-        # 这也解释了为什么别人更新走 `update.py apply`（按 manifest 换文件）而不是 git pull。
-        # 注意：这里只推当前这一个 tag，不能用 --tags —— 主库别的 tag 指向的提交不在这个
-        # 包里，一起推会让远端 unpack 失败（"did not receive expected object"）。
-        r = git("push", "skeleton", f"{BRANCH}:main", f"refs/tags/{TAG}:refs/tags/{TAG}",
-                "--force", cwd=WORKTREE)
+        # 第一次从 orphan 换到 merge 线时远端历史对不上，允许一次 --force-with-lease；
+        # 之后每次都走快进（release 只追加 merge 提交）。
+        r = git("push", "skeleton", f"{RELEASE}:main", f"refs/tags/{TAG}:refs/tags/{TAG}",
+                "--force-with-lease", cwd=WORKTREE)
         if r.returncode == 0:
             print("push-public: ok（别人 update.py 立刻能看到新版）")
         else:

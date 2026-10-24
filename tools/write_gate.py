@@ -28,7 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 REF = ROOT / "references"
 
-OPS = ("add", "merge", "weight")
+OPS = ("add", "merge", "weight", "replace")
 MAX_KEY_CHARS = 12
 MAX_BODY_LINES = 6
 MAX_LINE_CHARS = 120
@@ -93,7 +93,7 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
 
     op = item.get("op")
     if not isinstance(op, str) or op.strip().lower() not in OPS:
-        errors.append(err(index, "op", f"op 只许 add / merge / weight（拿到 {op!r}）"))
+        errors.append(err(index, "op", f"op 只许 add / merge / weight / replace（拿到 {op!r}）"))
 
     keys = item.get("keys")
     norm_keys: list[str] = []
@@ -190,6 +190,10 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
             normalized[field] = item[field]
     if "weight" in item:
         normalized["weight"] = item["weight"]
+    # op=replace 要靠 `old` 定位被换掉的那一行，闸门得原样放行（2026-10-24 加 replace）。
+    old = item.get("old")
+    if isinstance(old, str) and old.strip():
+        normalized["old"] = old.strip()
     return normalized, []
 
 

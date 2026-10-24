@@ -93,6 +93,9 @@ def write_agents(workspace: Path, cfg: dict, force: bool) -> None:
     paths = cfg.get("paths") or {}
     home = paths.get("home") or str(Path.home())
     body = body.replace("%USERPROFILE%", home)
+    # 2026-10-24：`public-AGENTS.md` 里原来写死 `~/.agents/skills/shiori-memory`，
+    # 分发包解压到别处时 §0 与 §0.2 的路径全是错的（女儿接手旧库第一件事就撞上）。
+    body = body.replace("<记忆库>", str(ROOT))
     body = body.replace("<笔记库>", str(workspace))
     body = body.replace("<代码仓库>", paths.get("codeRepo") or "")
     if os.name != "nt":

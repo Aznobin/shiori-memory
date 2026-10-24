@@ -40,7 +40,10 @@ def parse_frontmatter(text: str) -> dict:
 
 
 # 与 tools/memory_check.py 的 module_files 用同一份排除表，两个脚本的「模块数」必须相等
-EXCLUDE = ("_模板.md", "CATALOG.md", "_复核清单.md", "_巡检记录.md", "_路由详表.md")
+# 2026-10-24：`_合并候选.md` 是 `decay.py --pairs` 的生成物，memory_check / routes / pack 早就排了，
+# 这里漏一个 → CATALOG 数出 24、体检数出 23，两页打架。补上后三处同为 23。
+EXCLUDE = ("_模板.md", "CATALOG.md", "_复核清单.md", "_巡检记录.md", "_路由详表.md",
+           "_合并候选.md")
 
 
 def line_count(text: str) -> int:

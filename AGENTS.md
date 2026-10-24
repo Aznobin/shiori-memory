@@ -5,7 +5,7 @@
 
 ## 0. 库在哪
 
-- 记忆库：`~/.agents/skills/shiori-memory`（Windows：`%USERPROFILE%\.agents\skills\shiori-memory`）
+- 记忆库：`<记忆库>`（就是 `SKILL.md` 所在的目录，绝对路径已填好；别照抄别人的路径）
 - 真源：库根 `references/`——你自己的内容都在这
 - 派生：`fragments/`（检索单元）、`tools/memdb.sqlite3`（全文索引）、`state/decay.json`（冷热）；**每次重建，别手改**
 - 主文件：库根 `SKILL.md`（协议 + 用法，唯一必读，先读它）
@@ -30,7 +30,7 @@ $env:PYTHONIOENCODING='utf-8'
 ```
 
 - **别用 `Select-Object -First N` 截 python 输出**：管道提前关闭，python 报 broken pipe、以 `[exit code: 1]` 收场，看着像脚本炸了其实命令是好的。要截用 `Select-Object -Last N`，或者不截
-- 长路径先赋变量再拼接（`$L='C:\...\shiori-memory'`），别在命令里反复写全路径
+- 长路径先赋变量再拼接（`$L='<记忆库>'`），别在命令里反复写全路径
 - 跑 `.ps1`：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File <脚本>`（有的环境没有 `pwsh` 命令，只有 `powershell.exe`）
 - `setup.ps1` 跑完**已经建过派生层**（`fragments\index.json`、`tools\memdb.sqlite3`、`state\decay.json` 都在），一打开不是「没索引」的状态；但每轮开工照样先 `frag build` 刷一遍
 
