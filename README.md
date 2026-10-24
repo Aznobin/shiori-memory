@@ -103,7 +103,15 @@ macOS/Linux   cp AGENTS.md ~/你的工作目录/
 
 想少动手也可以跑 `setup.ps1 -Workspace <你的工作目录>`：它会填好路径、把 `AGENTS.md` 复制过去、顺手建好索引。**但这不是必须的**，解压 + 复制一样能跑。
 
-> 装了 git 的人也可以用 `git clone` 取库（好处是每次改动能回滚、换机器方便）：`git clone https://github.com/Aznobin/shiori-memory.git`。没装 git 就用上面的 zip，功能一样。
+没装 git 就用上面的 zip。
+
+装了 git：
+
+```bash
+git clone https://github.com/Aznobin/shiori-memory.git
+```
+
+推到自己的私有仓库更好用：换机器克隆下来接着用，改坏能回滚。公开库只放框架，别放记忆。
 
 ## 目录长什么样
 
