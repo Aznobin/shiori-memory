@@ -3,8 +3,8 @@
     "AGENTS.md": "3e4dd4367f81835f591a659579b87b70073719b2b7864a166816a1f48346aadd",
     "LICENSE": "76bed9a79e410bcee5b3f47f3929829e54a8e360b872d6fdc5acc0baae2e9ae2",
     "README.md": "e9051cd9d4b6ec04cb54db532816c08c989c84d0062e9efe379efdbd03bdcb31",
-    "SKILL.md": "1c94165a42a75b784b06512331712802c41672292f37e9242edb2030fb3a9938",
-    "VERSION": "1487b09a4ef69a50a27e19da4e292a6a75ea9f75014cf9e9c177be9fc8491c0f",
+    "SKILL.md": "cebfbc46ce90766958e8d850464a4ce260e8f914b64fd89930d027062dc83c06",
+    "VERSION": "9e27a09767c99778014e21dbe4d49135cec06082115f48187ed9bc813ba71ed1",
     "bin/recall-hook.cmd": "8b65739b8389275959133d9ff7fe3ca99ae109eca56f436bc135d4f2f5eb37e3",
     "bin/recall-hook.sh": "a9eb77e339bb2ec2b0cdd39d1dc49aeecabf04dff84fdd52b47e4973baf16368",
     "config.example.json": "90bbde4c96c01b026c6820cfb43a5c7c605991d1efc2bdfe64bfd1a24892839e",
@@ -65,11 +65,11 @@
     "tools/synonyms.py": "51daf126947a8dd240cd161d88a2fa461cd2a93cd2d6890cbeac861f3833ae23",
     "tools/thinkdig.py": "043cc749a1c5657946d4f4806c36722283818261ad4b2938c17b6dea1fa76a85",
     "tools/tick.py": "4cd107e54ebdc06582cb14562d95d49d5566ef5ec0bd79e097d6c0feac493a33",
-    "tools/update.py": "b5c52c1eb14a9b2962e8868aca12771c630c5e5370b4f283c7b6e7a4f3d4f51a",
+    "tools/update.py": "8ad9c932d2d88f66d037d1912d95c8aa0620914ece395e5a10a8bb591e6e4dfa",
     "tools/verify_pack.py": "3c65c5bbfa8676224fb41c1e28616159bca225970e7d03659e5f69c70afd832e",
     "tools/write_gate.py": "a1ad7b35df96cd5eed23f7f7e879c7e4138b4dadd5a58e440d8701284aed49fd"
   },
   "min_python": "3.10",
   "repo": "https://github.com/Aznobin/shiori-memory",
-  "version": "0.3.23"
+  "version": "0.3.24"
 }
