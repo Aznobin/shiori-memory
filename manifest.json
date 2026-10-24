@@ -3,8 +3,8 @@
     "AGENTS.md": "3e4dd4367f81835f591a659579b87b70073719b2b7864a166816a1f48346aadd",
     "LICENSE": "76bed9a79e410bcee5b3f47f3929829e54a8e360b872d6fdc5acc0baae2e9ae2",
     "README.md": "e9051cd9d4b6ec04cb54db532816c08c989c84d0062e9efe379efdbd03bdcb31",
-    "SKILL.md": "4350224b7e9b49258d53901e02a784e8072ff61710d5ebd9583a633cfddcbc97",
-    "VERSION": "e8eb716558f13c14a1dc90da09b8641b5ef2c5254c95d26ceededad44f7e439f",
+    "SKILL.md": "1c94165a42a75b784b06512331712802c41672292f37e9242edb2030fb3a9938",
+    "VERSION": "1487b09a4ef69a50a27e19da4e292a6a75ea9f75014cf9e9c177be9fc8491c0f",
     "bin/recall-hook.cmd": "8b65739b8389275959133d9ff7fe3ca99ae109eca56f436bc135d4f2f5eb37e3",
     "bin/recall-hook.sh": "a9eb77e339bb2ec2b0cdd39d1dc49aeecabf04dff84fdd52b47e4973baf16368",
     "config.example.json": "90bbde4c96c01b026c6820cfb43a5c7c605991d1efc2bdfe64bfd1a24892839e",
@@ -51,7 +51,7 @@
     "tools/memgit.py": "57085a208bc13ddbd55b14f9c9c75ac6e69110fbf1b88238e54fdbcdf4a07720",
     "tools/memory_check.py": "e7d7f3e7123f0ca3066cce8f198ed8a94180e3ef211c9769020e3042b1cd8211",
     "tools/memread.py": "1a35af04cb299169b63dd8f3641178dc31ec9bd247de63dccbf42110af1ae727",
-    "tools/memwrite.py": "63edc9f31ed07eea11086a8741805ee4231f844234455804d9d3af6636e69136",
+    "tools/memwrite.py": "1b1494c370b0e8bb3fe9cc6a60abbf935fbd16d9d92364900949951fecc5d94e",
     "tools/pack.py": "741f95f4728eb31a34cf022feba4312f84784850f9de786ffd73c83fd1936418",
     "tools/parity.py": "2c803a5fd0530b99d7a520d63ebcb660470a9e0349c6a9c938f68233a02f3f2e",
     "tools/persona.py": "338020b34602236d0591b0689e6d7da8c0fcc66af2dd47fb522b0f20d8c40b03",
@@ -65,11 +65,11 @@
     "tools/synonyms.py": "51daf126947a8dd240cd161d88a2fa461cd2a93cd2d6890cbeac861f3833ae23",
     "tools/thinkdig.py": "043cc749a1c5657946d4f4806c36722283818261ad4b2938c17b6dea1fa76a85",
     "tools/tick.py": "4cd107e54ebdc06582cb14562d95d49d5566ef5ec0bd79e097d6c0feac493a33",
-    "tools/update.py": "65573e2fe1933bffc4e27517e96ab1c23b91797ebdfd1218c527b7742d8f025e",
+    "tools/update.py": "b5c52c1eb14a9b2962e8868aca12771c630c5e5370b4f283c7b6e7a4f3d4f51a",
     "tools/verify_pack.py": "3c65c5bbfa8676224fb41c1e28616159bca225970e7d03659e5f69c70afd832e",
     "tools/write_gate.py": "a1ad7b35df96cd5eed23f7f7e879c7e4138b4dadd5a58e440d8701284aed49fd"
   },
   "min_python": "3.10",
   "repo": "https://github.com/Aznobin/shiori-memory",
-  "version": "0.3.22"
+  "version": "0.3.23"
 }

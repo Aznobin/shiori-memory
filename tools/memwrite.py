@@ -310,7 +310,10 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
             prefix = lead.group(1) if lead else "- "
             before_now = count_lines(lines)
             lines[hit] = prefix + new_line
-            stamp = item.get("updated") or item.get("date") or today
+            # 2026-10-24：导入旧内容不该把 updated 拉回去（shiori-new5 报的：写「旧笔记」把 01 的
+            # updated 从 2026-10-24 变成 2026-10-12）。条目自己的日期照样记在 body/date 里，只保证
+            # 模块的 updated 单调不回退。
+            stamp = max(item.get("updated") or item.get("date") or today, today)
             anchor = set_updated(lines, stamp)
             planned.append(
                 {
@@ -355,7 +358,8 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
         # 2026-10-24：同一批连写同一个模块时，报告里每条都显示「原始行数 → 写入后」，
         # 第二条看起来像没累进（新设备演练第 7 条）。before 上面已经取过了（在建小节之前）。
         new_lines = insert_at(lines, start, end, bullets)
-        stamp = item.get("updated") or item.get("date") or today
+        # 同上：导入旧内容不该把模块的 updated 拉回去。
+        stamp = max(item.get("updated") or item.get("date") or today, today)
         anchor = set_updated(new_lines, stamp)
         state["lines"] = new_lines
         planned.append(
