@@ -576,6 +576,14 @@ def main() -> int:
     # 2026-10-24（她的要求）：给分发包写一份骨架校验清单。
     # 收包人没法一眼看出骨架被动没动过——清单让骨架能自证，而 skeleton_guard.py
     # 只读不写，谁改完也不能「跑一次自动盖章」。要重新盖章只有重新打包这一条路。
+    # 2026-10-24（她抓到）：前面几步（catalog / routes / memory_check）会在包内 tools/
+    # 下留下 __pycache__/*.pyc，那种字节码里带着本机路径与名字，跟着包发出去就是泄漏。
+    # 必须在清点骨架之前删——否则清单会记下一个随即被删掉的 pyc，收包人一跑 guard 就报「不见了」。
+    for cache in list(target.rglob("__pycache__")):
+        shutil.rmtree(cache, ignore_errors=True)
+    for pyc in list(target.rglob("*.pyc")):
+        pyc.unlink(missing_ok=True)
+
     skeleton_items: list[str] = []
     for d in ("tools", "bin", "templates", "framework-public"):
         base = target / d
@@ -594,14 +602,6 @@ def main() -> int:
     ]
     for rel in skeleton_items:
         sha_lines.append(f"{hashlib.sha256((target / rel).read_bytes()).hexdigest()}  {rel}")
-    # 2026-10-24（她抓到）：跑到这里，前面几步（catalog / routes / memory_check）
-    # 会在包内 tools/ 下留下 __pycache__/*.pyc，那种字节码里带着本机路径与名字，
-    # 一旦跟着包发出去就是泄漏。落盘前统一清一遍。
-    for cache in list(target.rglob("__pycache__")):
-        shutil.rmtree(cache, ignore_errors=True)
-    for pyc in list(target.rglob("*.pyc")):
-        pyc.unlink(missing_ok=True)
-
     write(target / "SKELETON.sha256", "\n".join(sha_lines) + "\n")
     print(f"   骨架校验清单 SKELETON.sha256：{len(skeleton_items)} 项")
 
