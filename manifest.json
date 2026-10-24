@@ -3,8 +3,8 @@
     "AGENTS.md": "3e4dd4367f81835f591a659579b87b70073719b2b7864a166816a1f48346aadd",
     "LICENSE": "76bed9a79e410bcee5b3f47f3929829e54a8e360b872d6fdc5acc0baae2e9ae2",
     "README.md": "e9051cd9d4b6ec04cb54db532816c08c989c84d0062e9efe379efdbd03bdcb31",
-    "SKILL.md": "cebfbc46ce90766958e8d850464a4ce260e8f914b64fd89930d027062dc83c06",
-    "VERSION": "9e27a09767c99778014e21dbe4d49135cec06082115f48187ed9bc813ba71ed1",
+    "SKILL.md": "bc18983832684cb1f2e7b1f4574cd5a38211e3b1aac64a3dc19a8d06b1692b6b",
+    "VERSION": "092bd4c954bd9486477420210a98cd52b38a0689528f3debfcfe6a62f685a923",
     "bin/recall-hook.cmd": "8b65739b8389275959133d9ff7fe3ca99ae109eca56f436bc135d4f2f5eb37e3",
     "bin/recall-hook.sh": "a9eb77e339bb2ec2b0cdd39d1dc49aeecabf04dff84fdd52b47e4973baf16368",
     "config.example.json": "90bbde4c96c01b026c6820cfb43a5c7c605991d1efc2bdfe64bfd1a24892839e",
@@ -39,7 +39,7 @@
     "tools/daily.py": "ca8e04c7479d197294385290c783d0b58a3d2749e6c5bb88bf414c333a332203",
     "tools/decay.py": "9610e8ff2d897eb2d9b4bfb3eeaf2adaeef918b51bc62e34c0a78631a6aecd1f",
     "tools/diary_sync.py": "439cba3d799618a9c403f6382bfef6bfaa74bf68b74a453a44e3bdaab1977a37",
-    "tools/frag.py": "c1ef6719f4688fa6d8640e5f6fc25e34aa0629ec8fa7f0428f4747df2d41c6ca",
+    "tools/frag.py": "a38cc3796122521cdd04dfca5b46479e9bc5332aefd189a3061553b61d5721db",
     "tools/frag_bench.json": "fe5df653092d923edc7c00dbdf5f018fcd027917c44cb47c46206d67cd2329e3",
     "tools/frag_bench.py": "198a0ae5667ee7fbd3793794672e777ccd4b0c273f96807a4df290f14be602e8",
     "tools/frag_eval.py": "a8ee936820c98f4d8617f0dc5e20253e43fc9e3810c8210a2ca57008c26dfbc9",
@@ -58,7 +58,7 @@
     "tools/persona_lines.py": "91c2da640b8d8b8bf218542f1c679e742ab400edfe24a58359c1ea353cee794c",
     "tools/persona_probe.py": "6fff69f280e5958d21b049efb9e30bdb4628d7770cc7077ed5ea3dbe4bce397f",
     "tools/recall.py": "c344721247b83161cd40eb0fae48a0b89a3d3947f2009467ed62fe8b70395ab1",
-    "tools/recall_eval.py": "b1cde50f34fe41d5c7e719c8b55698abeb54d7c80382c6a48c8335fae392f77f",
+    "tools/recall_eval.py": "26450777d802f985a20c786e4cd7bed11c01e3b0cf0b7860318bc88f50d099dd",
     "tools/routes.py": "c6bf9880f479ec363f5ed1297cb50e101ca64977fd0fc35ffbd1e8341e357efa",
     "tools/setup.py": "27c6babe2255bc0516c1593d1b44ea453e1293acf60935184be91a1cac1f5bd1",
     "tools/style.py": "b44291165e23de68d9166570ab1b6e93aa9d45346b0195023f00d0d9f4f6f1ea",
@@ -71,5 +71,5 @@
   },
   "min_python": "3.10",
   "repo": "https://github.com/Aznobin/shiori-memory",
-  "version": "0.3.24"
+  "version": "0.3.25"
 }

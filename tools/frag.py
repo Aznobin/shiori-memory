@@ -612,6 +612,13 @@ def subject_of(query: str) -> str | None:
     low = (query or "").lower()
     if not low:
         return None
+    # 裸称谓（2026-10-24 新设备演练补，零新常数）：整句除了称谓没有别的实词时判到用户侧。
+    # 「用户」「本人」「库主人」→ user；「用户登录接口怎么写」还有实词，不触发。
+    # 为什么必须单独一档：这几个词在 90–99 的机制模块里出现得最密，光靠词面它们永远压过写人的模块。
+    bare = {"用户", "本人", "库主人"}
+    hit_bare = {b for b in bare if b in low}
+    if hit_bare and not (query_tokens(low) - hit_bare):
+        return "user"
     best: tuple[int, int] | None = None   # (距离, 优先级)：距离小者胜，同距离取更长的人称
     for topic in SUBJECT_TOPICS:
         start = 0
@@ -785,6 +792,15 @@ def cmd_search(args: argparse.Namespace) -> int:
         if s > 0:
             hits.append((s, item))
     hits.sort(key=lambda x: (-x[0], x[1]["frag"]))
+    # 主体分档（2026-10-24 新设备演练补，零新常数）：判到某一侧时同侧片段先排。
+    # 只在同侧最强 ≥ 原榜首 * SUBJECT_FLOOR 时启用，防止把不相干的模块硬塞到前面。
+    # 背景：219 片里系统/维护类占 86%、写人的只占 4%，词面排序下「用户」永远先撞机制模块。
+    side = subject_of(" ".join(args.terms))
+    if side in ("user", "self") and hits:
+        mine_mods = USER_MODULES if side == "user" else SELF_MODULES
+        mine = [h for h in hits if h[1]["module"] in mine_mods]
+        if mine and mine[0][0] >= hits[0][0] * SUBJECT_FLOOR:
+            hits = mine + [h for h in hits if h[1]["module"] not in mine_mods]
     if getattr(args, "expand_parts", False):
         for s, item in hits[: args.k]:
             print(f"[{s:5.1f}] {item['frag']:<8} {item['weight']:<6} {item['title'][:24]:<24} {item['file']}")

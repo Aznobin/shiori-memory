@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -70,6 +71,23 @@ CASES: list[tuple[str, set[str]]] = [
 
 # `--live` 口径下必然命不中的题（期望模块全被 BANNED 封掉），报数时扣掉
 LIVE_DEAD = {"用户生气或者难受的时候"}
+
+MODULE_FILE_RE = re.compile(r"^(\d{2}[a-z]?)-\S+\.md$")
+
+
+def existing_modules() -> set[str]:
+    """本库实际存在的模块号（拿 references 文件名，不猜）。
+
+    2026-10-24 新设备演练发现：分发包里的评测题沿用主库的期望模块，
+    22 条里 9 条的模块在包里根本不存在，跑出来的百分比天生是假的。
+    """
+    out: set[str] = set()
+    for p in frag.REF.glob("*.md"):
+        m = MODULE_FILE_RE.match(p.name)
+        if m:
+            out.add(m.group(1))
+    return out
+
 
 
 def rank_modules(query: str, idx=None, idf=None, avg=None, k: int = 5) -> list[str]:
@@ -118,7 +136,10 @@ def main() -> int:
     mrr = 0.0
     misses = []
     dead = 0
-    for query, want in CASES:
+    have = existing_modules()
+    scorable = [(q, w) for q, w in CASES if w & have]
+    skipped = [(q, w) for q, w in CASES if not (w & have)]
+    for query, want in scorable:
         ranked = evaluator(query, max(a.k, 5))
         rank = next((i + 1 for i, m in enumerate(ranked) if m in want), None)
         if rank:
@@ -132,13 +153,20 @@ def main() -> int:
             misses.append((query, want, ranked[:5]))
         if a.show:
             print(f"  {query}  →  {' '.join(ranked[:a.show])}")
-    n = len(CASES)
+    n = len(scorable)
     tag = "线上路径 recall.retrieve" if a.live else "片段层 frag.score"
-    print(f"评测 {n} 条（{tag}）")
-    print(f"  recall@1  {hits[1]}/{n}  {hits[1] / n:.1%}")
-    print(f"  recall@3  {hits[3]}/{n}  {hits[3] / n:.1%}")
-    print(f"  recall@5  {hits[5]}/{n}  {hits[5] / n:.1%}")
-    print(f"  MRR       {mrr / n:.3f}")
+    print(f"评测 {len(CASES)} 条（{tag}）")
+    if skipped:
+        missing = sorted({m for _q, w in skipped for m in (w - have)})
+        print(f"  ⚠️ SKIP {len(skipped)} 条：期望模块本库不存在，不进分母"
+              f"（缺 {', '.join(missing)}）")
+        for _q, _w in skipped:
+            print(f"      - {_q}  该中 {'/'.join(sorted(_w))}")
+    print(f"  可评分 {n} 条")
+    print(f"  recall@1  {hits[1]}/{n}  {(hits[1] / n if n else 0):.1%}")
+    print(f"  recall@3  {hits[3]}/{n}  {(hits[3] / n if n else 0):.1%}")
+    print(f"  recall@5  {hits[5]}/{n}  {(hits[5] / n if n else 0):.1%}")
+    print(f"  MRR       {(mrr / n if n else 0):.3f}")
     if dead:
         eff = n - dead
         print(f"\n  注意：其中 {dead} 条期望模块被 `BANNED_DOCS` 永久屏蔽（结构上不可能命中），"
@@ -150,6 +178,11 @@ def main() -> int:
         print("未命中：")
         for query, want, got in misses:
             print(f"  ✗ {query}  该中 {'/'.join(sorted(want))}  实得 {' '.join(got)}")
+    if skipped:
+        # 判据长牙的地方：评测集与库不配时分数天生是假的，巡检必须能红。
+        print(f"\n✗ 退出码 1：{len(skipped)} 条评测题的期望模块本库不存在，"
+              f"这份分数不能上报（先修评测集或库，别改这条判据）")
+        return 1
     return 0
 
 
