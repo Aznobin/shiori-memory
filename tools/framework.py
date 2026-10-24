@@ -582,10 +582,10 @@ def build(push: bool, push_public: bool = False) -> int:
     if push_public:
         # 第一次从 orphan 换到 merge 线时远端历史对不上，允许一次 --force-with-lease；
         # 之后每次都走快进（release 只追加 merge 提交）。
-        # 两条都推：master 是她定的「发行版主线」（2026-10-24），main 留着兼容
-        # 那些 update.source 里已经写死 .../main 的老用户——两边 finger 一致，
-        # 推哪个都不多余，删 main 反而会让老用户拉不到新版。
-        r = git("push", "skeleton", f"{RELEASE}:master", f"{RELEASE}:main",
+        # 发布库（shiori-memory）只留 master 一条：master = 发行版，
+        # 日常改动的 main 留在本机私有库里（公开库不能放源码，references/ 有个人模块）。
+        # 2026-10-24 她定的：「master 专门放发行库，日常修改进 main」。
+        r = git("push", "skeleton", f"{RELEASE}:master",
                 f"refs/tags/{TAG}:refs/tags/{TAG}",
                 "--force-with-lease", cwd=WORKTREE)
         if r.returncode == 0:

@@ -141,6 +141,6 @@ python tools/update.py rollback  # 换坏了退回去
 
 ## 10. 版本
 
-`0.3.31` · MIT License · by Firin Chan & Aznobin
+`0.3.32` · MIT License · by Firin Chan & Aznobin
 
 适配范围：在 DeepSeek Harness（Windows 11 + Python 3.12）上验证过；别的助手要用得自己接，没在别处验证。
