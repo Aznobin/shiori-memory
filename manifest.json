@@ -43,7 +43,7 @@
     "tools/frag_bench.json": "fe5df653092d923edc7c00dbdf5f018fcd027917c44cb47c46206d67cd2329e3",
     "tools/frag_bench.py": "198a0ae5667ee7fbd3793794672e777ccd4b0c273f96807a4df290f14be602e8",
     "tools/frag_eval.py": "a8ee936820c98f4d8617f0dc5e20253e43fc9e3810c8210a2ca57008c26dfbc9",
-    "tools/framework.py": "f3340e48b3a5f414acd6c355fdfc152704a65e97c415c2177318d9102e6cfc97",
+    "tools/framework.py": "a1c5d3d65a3259bac27d706e7b1fca61dd9bd1cd7f5b256032ac7ec199170508",
     "tools/hookcheck.py": "3fd662f6c29b1d6249e96a15c07f0d263a2a3bcc7dd4643223fad407f42db137",
     "tools/import_notes.py": "48e1720cd7ce5ad28fa0fefe294b217161ff8b1506a6dc5983317cd8c3d02f57",
     "tools/install_hooks.py": "e817354c513016e03fa6a81dd8eadc1e7a7ca4beffcc1283a0abcf56d4c4e1bf",
