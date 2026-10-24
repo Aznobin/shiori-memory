@@ -407,6 +407,40 @@ def main() -> int:
         title = front_field(txt, "title", stem).strip('"') or stem
         detail.append(f"| `{stem}` | {title} |")
     write(ref_target / "_路由详表.md", "\n".join(detail) + "\n")
+
+    # tools/recall_eval.py：评测集必须跟着包内模块走（2026-10-24 新设备演练）。
+    # 主库的题引用 78/27/22/24… 这些模块分发包里根本不存在，新用户跑出来的
+    # 百分比天生是假的。这里把「期望模块在包内一个都不存在」的题删掉，让每套库
+    # 只评自己有的东西；recall_eval 里「SKIP 非 0 退 1」那条判据仍然留着当兜底。
+    ev = target / "tools" / "recall_eval.py"
+    if ev.exists():
+        txt = read(ev)
+        have: set[str] = set()
+        for f in ref_target.glob("*.md"):
+            mm = re.match(r"^(\d{2}[a-z]?)-", f.name)
+            if mm:
+                have.add(mm.group(1))
+        head_mark = "CASES: list[tuple[str, set[str]]] = ["
+        if have and head_mark in txt:
+            before, rest = txt.split(head_mark, 1)
+            body, tail = rest.split("\n]", 1)
+            kept: list[str] = []
+            n_cut = 0
+            for line in body.split("\n"):
+                mrow = re.match(r'^\s*\("(.+?)",\s*\{([^}]*)\}\),\s*(?:#.*)?$', line)
+                if mrow:
+                    mods = {x.strip().strip('"').strip("'")
+                            for x in mrow.group(2).split(",") if x.strip()}
+                    if mods & have:
+                        kept.append(line)
+                    else:
+                        n_cut += 1
+                else:
+                    kept.append(line)          # 注释行原样保留
+            txt = before + head_mark + "\n".join(kept) + "\n]" + tail
+            write(ev, txt)
+            kept_n = sum(1 for ln in kept if ln.strip().startswith("("))
+            print(f"   recall_eval 评测集按包内模块裁剪：留 {kept_n} 条 · 删 {n_cut} 条")
     print(f"   _路由详表 已按包内模块重建：{len(detail) - 5} 个")
 
     # 收尾：把 relates_to 里指向「已被 drop 的模块」的编号摘掉。
