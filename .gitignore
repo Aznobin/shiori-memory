@@ -17,3 +17,14 @@ fragments/
 # 框架分支的临时 worktree（framework.py --build 生成）
 .framework/
 state/update.json
+
+# 打包产物清单（pack.py 每次生成，内容随版本变）
+PACKINFO.txt
+
+# 字节码缓存
+**/__pycache__/
+*.pyc
+
+# 机器状态与私人题库
+state/decay.json
+tools/frag_bench.json
