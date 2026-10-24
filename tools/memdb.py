@@ -264,7 +264,9 @@ def do_stats(_):
     e = con.execute("SELECT COUNT(*) FROM entries WHERE deleted=0").fetchone()[0]
     dl = con.execute("SELECT COUNT(*) FROM entries WHERE deleted=1").fetchone()[0]
     sz = os.path.getsize(DB) / 1024 if os.path.exists(DB) else 0
-    print(f"模块 {d} 个 · 条目 {e} 行 · 软删 {dl} 行 · 库 {sz:.0f} KB")
+    # 数的是 docs 表（含 SKILL.md / 结构件），比 catalog 的「模块数」多，所以叫「文档」
+    # 不叫「模块」——2026-10-24 新设备演练时两个数字对不上，找了一轮才发现是数法不同。
+    print(f"文档 {d} 个 · 条目 {e} 行 · 软删 {dl} 行 · 库 {sz:.0f} KB")
     for title, n, up in con.execute(
             "SELECT title, COUNT(*), MAX(0) FROM docs JOIN entries ON entries.doc_id=docs.id"
             " GROUP BY docs.id ORDER BY docs.id"):

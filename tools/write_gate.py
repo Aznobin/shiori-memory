@@ -28,7 +28,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 REF = ROOT / "references"
 
-OPS = ("add", "merge", "weight", "replace")
+# merge / weight 是设计里预留的两档，但写入端（memwrite.py 的 apply）至今没接：
+# 闸门放行、写入端拒收，等于墙上贴着「已支持」，照墙办事的人一定撞。
+# 2026-10-24 女儿审计第一条就是这个。闸门跟着收成真实支持的两值。
+OPS = ("add", "replace")
+
+# source 四档（2026-10-24 shiori-old 定的，专治「会话里说话的人被默认当成库的主人」）：
+#   user-original    她本人原话，含她自己写下的文字（日记正文也算）
+#   test-transcript  测试 / 演练里的对话记录，说话的是测试员不是她
+#   sample           造出来的样本数据
+#   unknown          查过了、查不出来——必须同时给 note 说清为什么不知道
+# 没有 unknown 这档只有两种下场：被硬标成真的，或者被拒在门外继续烂在旧文件夹里。
+SOURCES = ("user-original", "test-transcript", "sample", "unknown")
+# 按「是不是关于人的断言」定强制范围，不按模块白名单凑数：
+#   00/01/31 是人相关模块；11 也要，但它走行尾标（样本混在真日记里，模块级盖不住）。
+#   90–99 那批机制件豁免——它们的来源是代码和文档，不是人。
+SUBJECT_MODULES = ("00", "01", "31")
+
 MAX_KEY_CHARS = 12
 MAX_BODY_LINES = 6
 MAX_LINE_CHARS = 120
@@ -93,7 +109,7 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
 
     op = item.get("op")
     if not isinstance(op, str) or op.strip().lower() not in OPS:
-        errors.append(err(index, "op", f"op 只许 add / merge / weight / replace（拿到 {op!r}）"))
+        errors.append(err(index, "op", f"op 只许 {' / '.join(OPS)}（拿到 {op!r}）"))
 
     keys = item.get("keys")
     norm_keys: list[str] = []
@@ -152,6 +168,30 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
                     )
             norm_body = "\n".join(line.rstrip() for line in lines)
 
+    source = item.get("source")
+    norm_source = ""
+    if isinstance(source, str) and source.strip():
+        ss = source.strip()
+        if ss not in SOURCES:
+            errors.append(
+                err(index, "source", f"source 只许 {' / '.join(SOURCES)}（拿到 {ss!r}）")
+            )
+        else:
+            norm_source = ss
+    elif source is not None and not isinstance(source, str):
+        errors.append(err(index, "source", "source 必须是字符串"))
+    # 人相关模块必须声明来源：这条错不是「存的时候没声明」造成的，
+    # 是「内容进上下文时没人说它属于谁」，于是默认归给当前说话的人。
+    # 闸门是第二道（第一道在注入卡片的归属行），但来源得在入库这一刻留下。
+    if isinstance(module, str) and module.strip() in SUBJECT_MODULES and not norm_source:
+        errors.append(
+            err(
+                index,
+                "source",
+                f"{module} 装的是关于人的断言，必须带 source（{' / '.join(SOURCES)}）",
+            )
+        )
+
     norm_ids: list[str] = []
     if op is not None and isinstance(op, str) and op.strip().lower() == "merge":
         ids = item.get("ids")
@@ -185,6 +225,8 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
     }
     if norm_ids:
         normalized["ids"] = sorted(set(norm_ids))
+    if norm_source:
+        normalized["source"] = norm_source
     for field in ("date", "updated"):
         if field in item:
             normalized[field] = item[field]
@@ -231,14 +273,14 @@ GOOD = [
     },
     {
         "module": "82",
-        "op": "merge",
+        "op": "replace",
         "keys": ["台账"],
         "body": "两行合成一行。",
-        "ids": ["82.003", "82.004"],
+        "old": "旧的那一行",
     },
     {
         "module": "97",
-        "op": "weight",
+        "op": "add",
         "keys": ["评测"],
         "body": "加一条评测口径。",
         "date": "2026-10-23",
@@ -307,6 +349,10 @@ def selftest() -> int:
     for i, sample in enumerate(GOOD):
         item = dict(sample)
         item["module"] = pick(str(item.get("module", "")), i)
+        # 00/01/31 现在强制要 source：借到的模块正好是这三个时补一个默认档，
+        # 否则「换个库自测就红」这个坑会再踩一次。
+        if item["module"] in SUBJECT_MODULES and not item.get("source"):
+            item["source"] = "user-original"
         good.append(item)
     bad = []
     for i, (name, sample, field) in enumerate(BAD):

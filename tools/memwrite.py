@@ -143,6 +143,22 @@ def section_bounds(lines: list[str], name: str) -> tuple[int, int] | None:
     return None
 
 
+# 来源标记（2026-10-24 shiori-old 定的）：只有「不是她本人原话」的才在行尾标出来，
+# 因为 frag 切片只带正文，说明性文字在切片面前是流沙——标了才进上下文，只写文件头没用。
+# user-original 不标（默认真实）；unknown 靠 note 承载，不在正文里写黑话。
+SOURCE_MARKS = {
+    "test-transcript": "（测试记录，非本人原话）",
+    "sample": "（样本）",
+    "unknown": "（来源不明）",
+}
+
+
+def source_mark(source) -> str:
+    if not isinstance(source, str):
+        return ""
+    return SOURCE_MARKS.get(source.strip(), "")
+
+
 def to_bullets(body: str) -> list[str]:
     out: list[str] = []
     for raw in body.split("\n"):
@@ -278,7 +294,7 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
                     }
                 )
                 continue
-            new_line = to_bullets(item["body"])[0]
+            new_line = to_bullets(item["body"] + source_mark(item.get("source")))[0]
             new_line = re.sub(r"^(?:-|\*|\|)\s+", "", new_line, count=1)
             hit = hits[0]
             lead = re.match(r"^(\s*(?:-|\*|\|)\s+)", lines[hit])
@@ -301,7 +317,7 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
             )
             continue
 
-        bullets = to_bullets(item["body"])
+        bullets = to_bullets(item["body"] + source_mark(item.get("source")))
 
         if already_there(lines, bullets):
             skipped.append({"index": index, "file": path.name, "reason": "同样的正文第一行已在文件里"})

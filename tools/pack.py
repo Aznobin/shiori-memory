@@ -269,7 +269,9 @@ def main() -> int:
             stat["drop"] += 1
             continue
         if mode == "blank":
-            hint = file.stem.split("-", 1)[1] if "-" in file.stem else ""
+            # 没编号的协议件（_巡检记录 / _待确认 / _模板）拿文件名当提示词，
+            # 不然 keywords 会被填成「待填」，等于这个词废了（2026-10-24 发现）。
+            hint = file.stem.split("-", 1)[1] if "-" in file.stem else file.stem.lstrip("_")
             packed = to_blank(raw, hint)
             stat["blank"] += 1
         elif mode == "reset":
