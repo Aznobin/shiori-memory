@@ -114,6 +114,15 @@ def read_lines(path: Path) -> list[str]:
     return read_doc(path)[0]
 
 
+def count_lines(lines: list[str]) -> int:
+    """行数按 `wc -l` 的口径算：末尾那个 split 出来的空元素不算。
+
+    2026-10-24 新设备：`--dry` 报「23 → 24 行」，用编辑器/`wc -l` 数是 23——
+    因为 `text.split("\\n")` 在文件以换行结尾时多给一个空串。报告里的数字得跟人对得上。
+    """
+    return len(lines) - 1 if lines and lines[-1] == "" else len(lines)
+
+
 def write_doc(path: Path, lines: list[str], crlf: bool) -> None:
     """按原换行风格写回；newline='' 关掉自动翻译，字节就是我们要的样子。"""
     body = "\n".join(lines)
@@ -299,7 +308,7 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
             hit = hits[0]
             lead = re.match(r"^(\s*(?:-|\*|\|)\s+)", lines[hit])
             prefix = lead.group(1) if lead else "- "
-            before_now = len(lines)
+            before_now = count_lines(lines)
             lines[hit] = prefix + new_line
             stamp = item.get("updated") or item.get("date") or today
             anchor = set_updated(lines, stamp)
@@ -308,7 +317,7 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
                     "index": index,
                     "path": path,
                     "before": before_now,
-                    "after": len(lines),
+                    "after": count_lines(lines),
                     "added": 1,
                     "section": f"（替换第 {hit + 1} 行）",
                     "updated_line": anchor,
@@ -336,11 +345,13 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
                 bounds = section_bounds(lines, section)
             start, end = bounds
         else:
-            start = end = len(lines)
+            # 落在文件末尾时用「真实行数」当锚点，别用 split 出来的长度——
+            # 那个多一个末尾空元素，插进去会在 bullet 前多出一行空行（2026-10-24 dry 报 121 → 123）。
+            start = end = count_lines(lines)
 
         # 2026-10-24：同一批连写同一个模块时，报告里每条都显示「原始行数 → 写入后」，
         # 第二条看起来像没累进（新设备演练第 7 条）。before 取插入前的实际行数才连得上。
-        before_now = len(lines)
+        before_now = count_lines(lines)
         new_lines = insert_at(lines, start, end, bullets)
         stamp = item.get("updated") or item.get("date") or today
         anchor = set_updated(new_lines, stamp)
@@ -350,8 +361,8 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
                 "index": index,
                 "path": path,
                 "before": before_now,
-                "after": len(new_lines),
-                "added": len(bullets),
+                "after": count_lines(new_lines),
+                "added": count_lines(new_lines) - before_now,
                 "section": section or "（文件末尾）",
                 "updated_line": anchor,
                 "content": new_lines,
@@ -382,7 +393,10 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
     for p in planned:
         st = work.get(p["path"])
         if st:
-            p["after"] = len(st["lines"])
+            # 这里原来用 len(st["lines"])，把 split 出来的末尾空元素也算进去，
+            # 于是 dry 报「121 → 123」而文件其实 122 行（2026-10-24 新设备）。
+            p["after"] = count_lines(st["lines"])
+            p["added"] = p["after"] - p["before"]
 
     if not dry:
         for path, state in work.items():

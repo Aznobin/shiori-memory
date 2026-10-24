@@ -3,8 +3,8 @@
     "AGENTS.md": "80829bc1bbadf529413defadb47af1b8747c5a2bc8ff270e7cb86fe00932ab6a",
     "LICENSE": "76bed9a79e410bcee5b3f47f3929829e54a8e360b872d6fdc5acc0baae2e9ae2",
     "README.md": "e9051cd9d4b6ec04cb54db532816c08c989c84d0062e9efe379efdbd03bdcb31",
-    "SKILL.md": "b44eed7ed3d63a5252af52137af6844214914e647d02ae3aa9e00a65bf6d381e",
-    "VERSION": "304ee74090c149b24dd0a0c279da94cdff8469db1dda00a60560626a54c4cfec",
+    "SKILL.md": "1068d2210ba1dca5472a37c7742473312930d549a7cf582f03a5f2dfca510e81",
+    "VERSION": "c35a6984b68a5544f2703aa58b716f118178ae6e4c9ec6f67698dc518efe63a1",
     "bin/recall-hook.cmd": "8b65739b8389275959133d9ff7fe3ca99ae109eca56f436bc135d4f2f5eb37e3",
     "bin/recall-hook.sh": "a9eb77e339bb2ec2b0cdd39d1dc49aeecabf04dff84fdd52b47e4973baf16368",
     "config.example.json": "90bbde4c96c01b026c6820cfb43a5c7c605991d1efc2bdfe64bfd1a24892839e",
@@ -51,7 +51,7 @@
     "tools/memgit.py": "57085a208bc13ddbd55b14f9c9c75ac6e69110fbf1b88238e54fdbcdf4a07720",
     "tools/memory_check.py": "e7d7f3e7123f0ca3066cce8f198ed8a94180e3ef211c9769020e3042b1cd8211",
     "tools/memread.py": "1a35af04cb299169b63dd8f3641178dc31ec9bd247de63dccbf42110af1ae727",
-    "tools/memwrite.py": "069fd6e60e419fb9f6dd23d2b0756fb0affba26031c6fbeb7e9b700d55e86ff4",
+    "tools/memwrite.py": "6c7122e0ae5370cdb402988434486cd49bcf53e453a066533f848ac70f02efbc",
     "tools/pack.py": "741f95f4728eb31a34cf022feba4312f84784850f9de786ffd73c83fd1936418",
     "tools/parity.py": "2c803a5fd0530b99d7a520d63ebcb660470a9e0349c6a9c938f68233a02f3f2e",
     "tools/persona.py": "338020b34602236d0591b0689e6d7da8c0fcc66af2dd47fb522b0f20d8c40b03",
@@ -71,5 +71,5 @@
   },
   "min_python": "3.10",
   "repo": "https://github.com/Aznobin/shiori-memory",
-  "version": "0.3.15"
+  "version": "0.3.16"
 }
