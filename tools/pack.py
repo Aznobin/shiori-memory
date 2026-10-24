@@ -594,6 +594,14 @@ def main() -> int:
     ]
     for rel in skeleton_items:
         sha_lines.append(f"{hashlib.sha256((target / rel).read_bytes()).hexdigest()}  {rel}")
+    # 2026-10-24（她抓到）：跑到这里，前面几步（catalog / routes / memory_check）
+    # 会在包内 tools/ 下留下 __pycache__/*.pyc，那种字节码里带着本机路径与名字，
+    # 一旦跟着包发出去就是泄漏。落盘前统一清一遍。
+    for cache in list(target.rglob("__pycache__")):
+        shutil.rmtree(cache, ignore_errors=True)
+    for pyc in list(target.rglob("*.pyc")):
+        pyc.unlink(missing_ok=True)
+
     write(target / "SKELETON.sha256", "\n".join(sha_lines) + "\n")
     print(f"   骨架校验清单 SKELETON.sha256：{len(skeleton_items)} 项")
 
