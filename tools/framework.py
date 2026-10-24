@@ -516,7 +516,9 @@ def build(push: bool, push_public: bool = False) -> int:
     # 2026-10-24 她定的：改动提交署名 Firin，merge（发版）署名她。
     r = git("-c", "user.name=Firin", "-c", "user.email=firin@local",
             "commit", "-q", "-m", msg, cwd=WORKTREE)
-    if r.returncode != 0:
+    # 重复 --build 时内容没变，git 会报 nothing to commit。那不是错误：接着走 merge/push
+    # 就行（2026-10-24 第一次改成 merge 线时第二次 --build 直接退出了，白等一轮）。
+    if r.returncode != 0 and "nothing to commit" not in (r.stdout + r.stderr):
         print("❌ commit 失败：", (r.stderr or r.stdout).strip())
         return 1
     sha = git("rev-parse", "--short", "HEAD", cwd=WORKTREE).stdout.strip()
