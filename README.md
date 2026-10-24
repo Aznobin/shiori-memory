@@ -216,6 +216,26 @@ git checkout framework-v0.3.0
 
 `dist/` 目录里的 zip 只是打包临时产物，长期分发请看分支和 tag。
 
+## 升级骨架
+
+```bash
+python tools/update.py check            # 有没有新版（24 小时问一次；没配更新源会优雅退出）
+python tools/update.py hint             # 只吐一行结论，给开局念（同一版本只提醒一次）
+python tools/update.py apply --dry      # 预演：说清会覆盖什么、留几个 .new，一个字不动盘
+python tools/update.py apply            # 换骨架
+python tools/update.py rollback         # 换坏了退回去（自动备份在 state/backup/）
+```
+
+**升级只换骨架，不碰你的记忆正文。** 具体分三档：
+
+- `tools/` `bin/` `templates/` `framework-public/` 和 `setup.ps1`、`SKILL.md` 这些框架件**无条件覆盖**——它们不是你的东西。
+- 结构件（`变更日志`、`CATALOG`、`_巡检记录`、`_待确认`、`_路由详表`、`_合并候选`、`_模板`）**一个字都不动**——这些是你自己的库长出来的，覆盖等于毁账。
+- 协议件（`references/90`–`99`）内容冲突时写成 `90-xxx.md.new`，你自己合——骨架里那份是脱敏版，直接覆盖会把你写进去的原话换成「（已隐去）」。
+
+**一个必须知道的先后顺序问题**：升级器自己也在包里。你第一次升级跑的是**盘上那份旧 `update.py`**，所以这一轮仍按旧规则来（比如结构件也会生成 `.new`）。从 0.3.15 起，`apply` 结束时会发现 `update.py` 自己被换了，于是**立刻用新版再跑一遍**，让新规则当次生效。装的是 0.3.14 及更早版本的，第一次升级完请再跑一次 `apply --dry` 确认。
+
+升级完会自动重建 `frag.py build` + `memdb.py index` + `catalog.py`；你的条目、编号、日期都不变。
+
 ## 授权
 
 [MIT License](LICENSE)，Copyright (c) 2026 Firin Chan & Aznobin。
