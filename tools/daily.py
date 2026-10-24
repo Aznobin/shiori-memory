@@ -1,10 +1,10 @@
-"""日结算：一条命令把每天收尾要跑的东西全串起来，不用用户提醒。
+"""日结算：一条命令把每天收尾要跑的东西全串起来，不用她提醒。
 
 python tools/daily.py          # 全跑（日记归档 → 片段 → 索引 → 体检 → 自省 → 推 git）
 python tools/daily.py --dry    # 只列步骤，不执行
 
 设计原则：
-- 每一步失败都只记一句、继续往下走，不拦整轮（用户睡觉前不该卡在某个脚本上）
+- 每一步失败都只记一句、继续往下走，不拦整轮（她睡觉前不该卡在某个脚本上）
 - 结论压成一行写进 `references/_巡检记录.md`（只留最近 5 条）
 - 只动记忆模块自身；日记原文、笔记库、代码仓库一律不碰
 """
@@ -145,16 +145,16 @@ def main() -> int:
     fresh = "✅" if "全部同步" in results.get("同步校验", (1, ""))[1] else "⚠️"
     day = parse(r"共处理 (\d+) 天", results.get("日记归档", (0, ""))[1])
     persona = results.get("自省扫描", (0, ""))[1]
-    p_say = parse(r"用户 (\d+) 句", persona)
-    p_fix = parse(r"一、用户指出问题的地方（(\d+) 条", persona)
+    p_say = parse(r"她 (\d+) 句", persona)
+    p_fix = parse(r"一、她指出问题的地方（(\d+) 条", persona)
     p_soft = parse(r"二、我一开口就软/认错的句式（(\d+) 条", persona)
 
     result = (
         f"硬错误 {hard} / 软提醒 {soft} 条；模块 {mods}；片段 {frags}（问题 {frag_bad}）；"
         f"索引 {idx} 文件；同步 {fresh}；日记归档 {day} 天"
     )
-    found = f"用户 {p_say} 句 / 纠正 {p_fix} / 软开场 {p_soft}（自省 24h）"
-    action = "全部自动完成，无需用户提醒"
+    found = f"她 {p_say} 句 / 纠正 {p_fix} / 软开场 {p_soft}（自省 24h）"
+    action = "全部自动完成，无需她提醒"
 
     print("\n=== 日结算结论 ===")
     print(result)

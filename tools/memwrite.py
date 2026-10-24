@@ -152,7 +152,7 @@ def section_bounds(lines: list[str], name: str) -> tuple[int, int] | None:
     return None
 
 
-# 来源标记（2026-10-24 shiori-old 定的）：只有「不是用户本人原话」的才在行尾标出来，
+# 来源标记（2026-10-24 shiori-old 定的）：只有「不是她本人原话」的才在行尾标出来，
 # 因为 frag 切片只带正文，说明性文字在切片面前是流沙——标了才进上下文，只写文件头没用。
 # user-original 不标（默认真实）；unknown 靠 note 承载，不在正文里写黑话。
 SOURCE_MARKS = {
@@ -332,9 +332,9 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
             )
             continue
 
-        # op=retire：软删（2026-10-24 用户定的「删是软删，纯文本就算聊一年都没多少数据」）。
+        # op=retire：软删（2026-10-24 她定的「删是软删，纯文本就算聊一年都没多少数据」）。
         # 不抹掉正文，只在行尾挂退休标记；`frag` 切片段时跳过标记行，`memdb` 对应标 deleted。
-        # 依据 `90` §4「本库没有容量压力，删等于丢」+ 用户对自己写库的纪律「禁用 DELETE，一律 UPDATE status」。
+        # 依据 `90` §4「本库没有容量压力，删等于丢」+ 她对自己写库的纪律「禁用 DELETE，一律 UPDATE status」。
         if op == "retire":
             old = (item.get("old") or "").strip()
             if not old:

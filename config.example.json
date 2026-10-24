@@ -21,7 +21,7 @@
     "javaVault": "<Java笔记库>"
   },
   "diary": {
-    "dir": "每日总结",
+    "dir": "日记",
     "prefix": "日记"
   },
   "update": {
@@ -36,7 +36,8 @@
     ],
     "excludeFiles": [
       ".style_override.json",
-      "memdb.sqlite3"
+      "memdb.sqlite3",
+      "frag_bench.json"
     ],
     "scrub": {},
     "regenerateCatalog": true

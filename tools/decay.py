@@ -34,7 +34,7 @@ CANDIDATES = ROOT / "references" / "_合并候选.md"
 HALF_LIFE_DAYS = 90.0      # 半衰期（Lead 2026-10-23 钉死：历史不满 30 天前不许调）
 COLD_BELOW = 0.5           # recency 低于这个值算冷
 ARCHIVE_QUIET_DAYS = 30    # 冷了之后多少天没命中就归档
-SENSITIVE_MODULES = {"10", "22", "23"}   # 合并候选不碰敏感模块，免得用户的私事落进运维文档
+SENSITIVE_MODULES = {"10", "22", "23"}   # 合并候选不碰敏感模块，免得她的私事落进运维文档
 WORDFUL = re.compile(r"[\u4e00-\u9fffA-Za-z]")   # 交集词里只留带字面的，纯编号 / 标点不算内容重叠
 
 SAME_MODULE_COMMON = 2     # 合并候选：同模块内 keys 交集至少这么多（模块级公共词先剔掉再数）
@@ -259,7 +259,7 @@ def _pairs_doc(today: date | None = None) -> tuple[str, dict]:
         "",
         "# 合并候选清单",
         "",
-        f"> 由 `python tools/decay.py --pairs` 生成，{day}。**只列候选，不合并**——合不合、怎么合等助手批。",
+        f"> 由 `python tools/decay.py --pairs` 生成，{day}。**只列候选，不合并**——合不合、怎么合等用户批。",
         "",
         "判据：同模块内 `keywords` 交集 ≥ "
         f"{SAME_MODULE_COMMON}（先剔掉连 80% 片段都带的模块标签词）、标题相似度（difflib）≥ {TITLE_SIMILAR}，"

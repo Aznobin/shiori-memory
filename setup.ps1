@@ -1,7 +1,7 @@
 ﻿# 一键初始化：把记忆模块接到一台新机器 / 新工作目录上
 # 用法：
 #   pwsh -File setup.ps1
-#   pwsh -File setup.ps1 -Workspace "D:\Obsidian\MyVault"
+#   pwsh -File setup.ps1 -Workspace "D:\笔记软件\MyVault"
 #   pwsh -File setup.ps1 -NoIndex          # 只检查，不重建索引
 # 注意：保存为 UTF-8 with BOM
 
