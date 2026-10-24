@@ -14,9 +14,10 @@
 
 ### 0.1 模块数有三种口径，别混着说
 
-- `frag.py stats` 说的「模块数」：有 frontmatter 的真模块
-- `references\*.md` 的文件数：多出 `_待确认` `_模板` `_路由详表` `CATALOG` `变更日志` 这些非模块文件
-- `CATALOG.md` / 路由表统计的：按登记过的算
+- `frag.py stats` 报的是**两个数**：「模块 23 个（有片段 22）」——23 是按 frontmatter 数出来的模块文件，22 是这一轮真切出片段来的
+- `frag.py build` 只报「有片段」那个数（「22 个模块 → 193 个片段」）
+- `references\*.md` 的文件数会更大：还含 `_待确认` `_模板` `_路由详表` `CATALOG` `变更日志` `_巡检记录` 这些非模块文件（干净库实测 21 个带号文件）
+- `CATALOG.md` / 路由表统计的：按登记过的算，一般跟 stats 的 23 一致
 
 被问到「有多少模块」时，先说清按哪个口径数的，否则三个数字互相打架。
 
@@ -35,6 +36,8 @@ $env:PYTHONIOENCODING='utf-8'
 - `setup.ps1` 跑完**已经建过派生层**（`fragments\index.json`、`tools\memdb.sqlite3`、`state\decay.json` 都在），一打开不是「没索引」的状态；但每轮开工照样先 `frag build` 刷一遍
 
 ## 1. 开局六步
+
+**下面所有 `python tools/...` 都在库根（`<记忆库>`）下跑，不是在工作区**——工作区里没有 `tools\`，在那边跑第一条就是 `can't open file`。
 
 ```bash
 python tools/memgit.py check          # 1. 库状态（没仓库就「跳过」，正常）
@@ -59,7 +62,8 @@ python tools/frag.py search 关键词      # 4. 按这一轮的实际话题查
 python tools/memwrite.py 请求.json --changelog "一句话摘要"
 ```
 
-- 请求格式：`[{"module":"00","op":"add","keys":["名字"],"section":"我是谁","body":"……","date":"2026-10-24"}]`
+- 请求格式：`[{"module":"00","op":"add","keys":["名字"],"section":"我是谁","body":"……","date":"2026-10-24","source":"user-original"}]`
+- **`source` 四档，写关于人的内容（`00` / `01` / `31`）时必须带**，不带就整批拒：`user-original`（用户本人说的/写的，**默认不标**）/ `test-transcript`（演练、别人转述，行尾标「测试记录，非本人原话」）/ `sample`（样本，标「（样本）」）/ `unknown`（查不出出处，标「（来源不明）」+正文写清为什么）。这四档不是格式洁癖——2026-10-24 就踩过：把测试员（lead）说的三条边界当成用户性格写进 `31`，链子不缺环、是指错了人
 - 它会过闸门（模块号 / 长度 / 关键词 / 日期）、插到指定小节、改 `updated`、重建索引（约 0.4–0.5 s）
 - `section` 写了个该模块还没有的小节：**会自动补 `## 小节名`** 再写进去，不用先手动建
 - `--changelog "一句话"` 才会自动补 `变更日志` 一行；不带就自己补，别让它空着
@@ -86,6 +90,7 @@ python tools/import_notes.py --apply <草稿文件>        # 把标了 OK 的写
 - 拿不准的把模块列写 `_待确认`，它会真的落进 `references\_待确认.md`，不会被静默丢掉
 - 日期：文件名里的日期 > frontmatter 的 `date`/`updated` > 文件修改时间
 - 「来源」列（`文件名:行号`）会跟着进条目末尾变成「（源：…）」，以后能追回原文件
+- `--apply` 默认把导入的条目当 `user-original`（你自己写的笔记）；扫的是演练稿、别人给的文件，加 `--source sample` 或 `--source unknown`（`00`/`01`/`31` 没有 source 一律被闸门拒，这条别硬来）
 - `--apply` **不写 `变更日志`**，要留痕自己补一行；但写完会自动重建索引
 
 ## 4. 不要做

@@ -271,7 +271,7 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
 
         if path not in work:
             lines, crlf = read_doc(path)
-            work[path] = {"lines": lines, "crlf": crlf, "before": len(lines)}
+            work[path] = {"lines": lines, "crlf": crlf, "before": count_lines(lines)}
         state = work[path]
         lines = state["lines"]
 
@@ -333,6 +333,9 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
             continue
 
         section = item.get("section")
+        # 2026-10-24：before 必须在「建小节 / 插条目」之前取——建节会先加 2 行，
+        # 那 2 行被算进 before 就会报 16 → 17，而磁盘实际 14 → 17（新设备演练第 4 条）。
+        before_now = count_lines(lines)
         if section:
             bounds = section_bounds(lines, section)
             if bounds is None:
@@ -350,8 +353,7 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
             start = end = count_lines(lines)
 
         # 2026-10-24：同一批连写同一个模块时，报告里每条都显示「原始行数 → 写入后」，
-        # 第二条看起来像没累进（新设备演练第 7 条）。before 取插入前的实际行数才连得上。
-        before_now = count_lines(lines)
+        # 第二条看起来像没累进（新设备演练第 7 条）。before 上面已经取过了（在建小节之前）。
         new_lines = insert_at(lines, start, end, bullets)
         stamp = item.get("updated") or item.get("date") or today
         anchor = set_updated(new_lines, stamp)
