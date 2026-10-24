@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "& 'C:\\Users\\user\\AppData\\Local\\Programs\\Python\\Python312\\python.exe' 'C:\\Users\\user\\.agents\\skills\\user-memory\\tools\\recall.py' hook --host codex",
+            "command": "& '%USERPROFILE%\\AppData\\Local\\Programs\\Python\\Python312\\python.exe' '%USERPROFILE%\\.agents\\skills\\user-memory\\tools\\recall.py' hook --host codex",
             "timeout": 20
           }
         ]

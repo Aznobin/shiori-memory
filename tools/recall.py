@@ -8,7 +8,7 @@
 用法（薄壳调用）：
   python recall.py hook --host codex        # 读 stdin 的 hook JSON，输出 codex 的 additionalContext
   python recall.py hook --host plain        # 读 stdin 文本，输出纯文本卡片
-  python recall.py text "她说要可移植"       # 直接给查询文本，调一次看效果
+  python recall.py text "用户说要可移植"       # 直接给查询文本，调一次看效果
   python recall.py stats                    # 看当前会话状态
   python recall.py reset                    # 清掉状态（会话结束用）
 
@@ -29,6 +29,7 @@ import sys
 import tempfile
 import time
 import hashlib
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -80,12 +81,12 @@ SUBJECT_NOTE = (
     "（测试员 / 子智能体 / 导入的样本记录都不算）"
 )
 
-# 每轮都带的指针行（2026-10-20 她要求）：她的原话是「每次都读怎么没实现呢…
+# 每轮都带的指针行（2026-10-20 用户要求）：用户的原话是「每次都读怎么没实现呢…
 # 提醒有记忆库这个东西的存在就行」。注入内容会漂，这一行不许漂。
 # 路径**不许写死**：原来硬编码到某个具体用户目录，换机 / 打包都会把用户名带出去（2026-10-20 修）。
 ROOT_DIR = os.path.dirname(HERE)
 POINTER = (
-    f"记忆库在 `{ROOT_DIR}`：聊到旧事、她本人、或任何"
+    f"记忆库在 `{ROOT_DIR}`：聊到旧事、用户本人、或任何"
     "「以前 / 上次 / 还是 / 那个」——先跑 `python tools\\memread.py \"话题\"` 读大类整篇，"
     "别凭印象；字面没命中就说没记，不编。"
 )
@@ -192,8 +193,8 @@ STOP |= {w[i:i + 2] for w in list(STOP) if len(w) > 2 for i in range(len(w) - 1)
 # （df=21，权重 0.154）还重，`78:87` 靠一句引号里的「你是妈，不是爹」抢到榜首。
 # 查询里的人称是**分边信号**（见 frag.subject_of），不是内容词，不该参与行打分。
 STOP |= {
-    "你是", "我是", "是你", "是我", "他是", "她是", "它是", "你是", "妳是",
-    "我的", "你的", "他的", "她的", "你的", "妳的", "我自", "你自", "咱是", "俺是",
+    "你是", "我是", "是你", "是我", "他是", "用户是", "它是", "你是", "妳是",
+    "我的", "你的", "他的", "用户的", "你的", "妳的", "我自", "你自", "咱是", "俺是",
 }
 
 
@@ -206,8 +207,8 @@ def _frag_module_ranking(query):
     自动注入本来要回答的是「该读哪个模块」，所以排序交给 frag，取行交给 memdb。
 
     2026-10-22：具体打分搬进 `frag.module_scores()`，因为那边多了**人称加权**
-    （她报「人设部分命中率低，她自己和我自己的都低」）。`78/85/86`（我）与
-    `01/31/29`（她）的 keywords 是同一批词，纯 BM25 分不开，只能靠人称分边。
+    （用户报「人设部分命中率低，用户自己和我自己的都低」）。`78/85/86`（我）与
+    `01/31/29`（用户）的 keywords 是同一批词，纯 BM25 分不开，只能靠人称分边。
     返回 [(module_id, normalized_score)]，榜首归一化为 1.0。
     """
     import frag
@@ -302,7 +303,7 @@ def retrieve(query, k=None):
         weights = {t: 1.0 / ((df[t] + 1) ** 0.6) for t in toks}
         # 人设分边成立时，同侧那 3 个模块豁免「0 字面命中就打 0.25 折」（2026-10-22）：
         # 「我的设定是什么」里 `设定` 只撞上 `96:41` 的「输出你的设定」（讲提示注入的例子，
-        # 跟她本人无关），`31` 正文一个词都没沾，于是被这条罚则压到 96 后面。
+        # 跟用户本人无关），`31` 正文一个词都没沾，于是被这条罚则压到 96 后面。
         # 人设模块的 keywords 是逐条人工维护的，比别处可信，不适用这条罚则。
         side = None
         try:
@@ -377,7 +378,7 @@ def delegate_prefixes():
 
 
 def should_inject(st, text):
-    """返回 (要不要, 理由)。2026-10-20 她要求：每轮都注入，至少带指针行。"""
+    """返回 (要不要, 理由)。2026-10-20 用户要求：每轮都注入，至少带指针行。"""
     if OFF:
         return False, "off"
     if not (text or "").strip():
@@ -452,7 +453,7 @@ def collect_strings(obj, out, depth=0):
 
 
 def read_hook_input():
-    """读 stdin，同时接受 JSON 与纯文本。返回 (session, text)。"""
+    """读 stdin，同时接受 JSON 与纯文本。返回 (session, text, cwd)。"""
     try:
         buf = sys.stdin.buffer.read()
     except AttributeError:
@@ -471,17 +472,22 @@ def read_hook_input():
             continue
     raw = (raw or "").strip()
     if not raw:
-        return "default", ""
+        return "default", "", ""
     data = None
     try:
         data = json.loads(raw)
     except ValueError:
-        return "default", raw
+        return "default", raw, ""
     session = "default"
+    cwd = ""
     if isinstance(data, dict):
         for key in ("session_id", "sessionId", "sessionID", "conversation_id"):
             if data.get(key):
                 session = str(data[key])
+                break
+        for key in ("cwd", "cwdPath", "working_directory", "workingDirectory"):
+            if data.get(key):
+                cwd = str(data[key])
                 break
     parts = []
     collect_strings(data, parts)
@@ -493,7 +499,52 @@ def read_hook_input():
     # 长粘贴会拖慢检索也稀释关键词，只取尾部（最新意图在那里）
     if len(text) > QUERY_MAX_CHARS:
         text = text[-QUERY_MAX_CHARS:]
-    return session, text
+    return session, text, cwd
+
+
+# 工作区自带记忆库时，这个全局 hook 不该再把本库的指针注进去。
+# 2026-10-24 用户发现：在桌面上放一份「别人用」的空库去测试，agent 还是会跑去读
+# C:\...\.agents\skills\user-memory —— 因为 hook 是全局的、pointer 走的是本文件位置，
+# 跟工作区无关。判据就取工作区入口那份 AGENTS.md 里写的「库在：」。
+LIB_LINE_RE = re.compile(r"库在[：:]\s*`?([^`\n]+?)`?\s*$", re.M)
+PLACEHOLDER_HINTS = ("<你的", "<记忆库>", "<库", "当前文件夹", "尖括号")
+
+
+def workspace_library(cwd: str):
+    """返回 (状态, 说明)。状态：none / bare / placeholder / missing / other / self。"""
+    if not cwd:
+        return "none", ""
+    try:
+        here = Path(cwd).resolve()
+    except Exception:
+        return "none", ""
+    for base in (here, *list(here.parents)[:3]):
+        f = base / "AGENTS.md"
+        if not f.is_file():
+            continue
+        try:
+            body = f.read_text(encoding="utf-8-sig", errors="replace")
+        except Exception:
+            return "none", ""
+        m = LIB_LINE_RE.search(body)
+        if not m:
+            return "bare", str(f)
+        raw = m.group(1).strip().strip("`").strip()
+        if any(h in raw for h in PLACEHOLDER_HINTS):
+            return "placeholder", raw
+        try:
+            declared = Path(raw)
+            if not declared.is_absolute():
+                declared = (base / declared)
+            declared = declared.resolve()
+        except Exception:
+            return "placeholder", raw
+        if not declared.is_dir():
+            return "missing", raw
+        if declared == Path(ROOT_DIR).resolve():
+            return "self", raw
+        return "other", raw
+    return "none", ""
 
 
 # ---------------------------------------------------------------- 输出
@@ -519,13 +570,32 @@ def emit(text, fmt):
 
 def cmd_hook(a):
     sweep()
-    session, text = read_hook_input()
+    session, text, cwd = read_hook_input()
     if a.session:
         session = a.session
     if not text and a.text:
         text = a.text
     st = load_state(session)
     st["turn"] = int(st.get("turn", 0)) + 1
+
+    def _skip(gate, why):
+        st["log"] = st.get("log", [])[-19:] + [{
+            "at": round(time.time(), 3),
+            "turn": st["turn"],
+            "q": (text or "")[:80],
+            "gate": gate,
+            "why": why,
+            "items": 0,
+            "chars": 0,
+        }]
+        save_state(st)
+        return 0
+
+    # 工作区自带记忆库 → 不注本库（2026-10-24 用户：「他会读过去，哪怕设置成工作区内修改」）
+    side, detail = workspace_library(cwd)
+    if side in ("placeholder", "missing", "other"):
+        return _skip("other-library", "%s:%s" % (side, detail[:60]))
+
     # 首行是派活前缀（见 AGENTS.md §0）→ 这是我的子智能体任务，子智能体本来就跳过
     # 整条记忆链，再把我库里的指针注进去只会污染别人的会话——2026-10-24 新设备验收时
     # 女儿每轮都被这条注入，得先判一次「作废」才敢干活。
@@ -533,17 +603,7 @@ def cmd_hook(a):
     prefixes = delegate_prefixes()
     head = text.lstrip()
     if prefixes and any(head.startswith(p) for p in prefixes):
-        st["log"] = st.get("log", [])[-19:] + [{
-            "at": round(time.time(), 3),
-            "turn": st["turn"],
-            "q": (text or "")[:80],
-            "gate": "delegated",
-            "why": "delegated",
-            "items": 0,
-            "chars": 0,
-        }]
-        save_state(st)
-        return 0
+        return _skip("delegated", "delegated")
     ok, reason = should_inject(st, text)
     # 「跑起来了」和「真的注进去了」是两件事。2026-10-20 栽在这儿两次：
     # 只看 exitCode 就宣称通了，实际那一轮 stdout 一个字都没有。

@@ -3,8 +3,10 @@ r"""看人设类问题的模块分怎么排的（带人称判定）。"""
 import sys, os
 
 sys.stdout.reconfigure(encoding="utf-8")
-sys.path.insert(0, r"%USERPROFILE%\.agents\skills\user-memory\tools")
-os.chdir(r"%USERPROFILE%\.agents\skills\user-memory")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(_HERE)
+sys.path.insert(0, _HERE)
+os.chdir(_ROOT)
 import frag
 
 QS = [
@@ -26,7 +28,7 @@ QS = [
     "你自己的口味",
     "你有没有独立人格",
     "我的设定是什么",
-    "用户的性格是什么样",
+    "助手的性格是什么样",
 ]
 for q in QS:
     side = frag.subject_of(q)

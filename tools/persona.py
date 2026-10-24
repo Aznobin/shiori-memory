@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""人格自省：读最近的会话存档，把「她纠正我的地方」和「我一开口就附和的句式」捞出来。
+"""人格自省：读最近的会话存档，把「用户纠正我的地方」和「我一开口就附和的句式」捞出来。
 
 用法：
     python tools/persona.py review                # 默认最近 24 小时
@@ -20,7 +20,7 @@ from pathlib import Path
 
 
 def find_sessions_root(explicit: str | None = None) -> Path | None:
-    """按机器找人：不写死用户名，也不假设只有一台电脑（2026-10-19 她提醒的两点）。"""
+    """按机器找人：不写死用户名，也不假设只有一台电脑（2026-10-19 用户提醒的两点）。"""
     cands: list[Path] = []
     if explicit:
         cands.append(Path(explicit).expanduser())
@@ -39,7 +39,7 @@ def find_sessions_root(explicit: str | None = None) -> Path | None:
             return c
     return None
 
-# 她的纠正信号：命中任一即算「在指出我错了 / 没听懂」
+# 用户的纠正信号：命中任一即算「在指出我错了 / 没听懂」
 CORRECTION = re.compile(
     r"(不是这个意思|不是这样|别这样|别自作|又错|又忘|又来|错了|搞错|说了多少遍|说了吧|"
     r"笨|啧|闭嘴|怎么会|听不懂|怎么又|离谱|你确定|真记了|骗|哈？|哈\?|歪|毛病)"
@@ -50,7 +50,7 @@ AGREE = re.compile(
 )
 APOLOGY = re.compile(r"^(对不起|抱歉|是我错|我错了|我认)")
 
-# 不算她真在说话的消息
+# 不算用户真在说话的消息
 SKIP_SOURCES = {"user-approval", "system", "schedule-reminder", "reminder"}
 
 
@@ -142,13 +142,13 @@ def review(hours: float, max_items: int, root: str | None = None) -> int:
                     continue
                 if text.startswith("<system-reminder"):
                     continue
-                # 每轮的「记忆指针 + 按需注入」是拼在 user message 里的，不是她说的话。
-                # 不过滤的话，`记忆库在 ...` 会被当成「她指出问题」混进第一列（2026-10-22 实测 4/5 条）。
+                # 每轮的「记忆指针 + 按需注入」是拼在 user message 里的，不是用户说的话。
+                # 不过滤的话，`记忆库在 ...` 会被当成「用户指出问题」混进第一列（2026-10-22 实测 4/5 条）。
                 if text.startswith("记忆库在") or "【记忆·按需注入】" in text:
                     continue
                 if text.startswith("【自启停") or text.startswith("[SCHEDULE REMINDER") or "reminders_json" in text:
                     continue
-                # 存档里会把「她复述我的话」也记成 user/message，这类跳过
+                # 存档里会把「用户复述我的话」也记成 user/message，这类跳过
                 if "记忆变更" in text or text.startswith("记下了"):
                     continue
                 hers.append((ev.get("time") or 0, text))
@@ -160,13 +160,13 @@ def review(hours: float, max_items: int, root: str | None = None) -> int:
 
     print(f"自省扫描 {datetime.now():%Y-%m-%d %H:%M} · 最近 {hours:g} 小时")
     print(f"存档目录 {base}")
-    print(f"会话 {len(files)} 个 · 她 {len(hers)} 句 · 我 {len(mine)} 句")
+    print(f"会话 {len(files)} 个 · 用户 {len(hers)} 句 · 我 {len(mine)} 句")
     print()
-    print(f"一、她指出问题的地方（{len(corr)} 条，这几条要对照 86 的立场看）")
+    print(f"一、用户指出问题的地方（{len(corr)} 条，这几条要对照 86 的立场看）")
     for t, x in corr[-max_items:]:
         print(f"  - {_hhmm(t)} 「{_clip(x)}」")
     if not corr:
-        print("  - 没有。连续多日为零要警惕：可能是我太顺，也可能是她懒得说")
+        print("  - 没有。连续多日为零要警惕：可能是我太顺，也可能是用户懒得说")
     print()
     pct = (len(soft) / len(mine) * 100) if mine else 0
     print(f"二、我一开口就软/认错的句式（{len(soft)} 条 / 我共 {len(mine)} 句 = {pct:.1f}%）")

@@ -21,7 +21,7 @@
     "javaVault": "<Java笔记库>"
   },
   "diary": {
-    "dir": "daily",
+    "dir": "每日总结",
     "prefix": "日记"
   },
   "update": {

@@ -5,7 +5,7 @@
 <p align="center">No vector database. No API key. No extra service.</p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.3.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.3.33-blue">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
   <img alt="python" src="https://img.shields.io/badge/python-%E2%89%A53.12-yellow">
   <img alt="platform" src="https://img.shields.io/badge/DeepSeek%20Harness-plugin-purple">
@@ -21,15 +21,16 @@
 
 - [这是什么](#这是什么)
 - [它治什么毛病](#它治什么毛病)
-- [五分钟跑起来](#五分钟跑起来)
-- [先把它接到工作区（AGENTS.md）](#先把它接到工作区agentsmd)
+- [快速开始（三步，不用敲任何命令）](#快速开始三步不用敲任何命令)
 - [目录长什么样](#目录长什么样)
 - [片段是怎么回事](#片段是怎么回事)
-- [工具都有哪些](#工具都有哪些)
+- [命令都是自动跑的（不用你操作）](#命令都是自动跑的不用你操作)
+- [从旧笔记搬内容（importer）](#从旧笔记搬内容importer)
 - [记忆怎么不越堆越肿](#记忆怎么不越堆越肿)
 - [隐私与安全](#隐私与安全)
-- [装成技能用](#装成技能用)
+- [装成技能用（DSH）](#装成技能用dsh)
 - [框架版怎么取](#框架版怎么取)
+- [升级骨架](#升级骨架)
 - [授权](#授权)
 
 ## 这是什么
@@ -44,6 +45,10 @@
 - **纯文本**：全是 `.md`，你可以用任何编辑器改，也能进版本管理
 - **可迁移**：把一个目录拷走就等于迁完
 - **可分发**：有打包脚本，私人内容清空后别人拿到就是一份空骨架
+- **语气可以不像 AI**：包里带一份 `89-语气与交流` 模板，开局必读——短句、不写括号动作、不总结不升华、允许说「我不同意」，去 AI 腔十条 + 发前三问，改完就按那个声音说话
+- **语气模仿**：它记得**你怎么说话**——常用词、句子长短、标点习惯、口头禅、不同场合的两套口气。**聊天里一直在学，随手攒进 `89` 的样本附录**；让它帮你写日记、消息、汇报时，用的是**你自己的口气**；聊天时还是它自己的声音，判断和喜恶一个字都不跟着变
+- **你硬它也硬**：不因为你语气重就改口，只服证据和理由；不同意直接说，顶完给活路。这条跟萌不萌无关，是骨架
+- **骨架碰不得**：`tools\`、`templates\`、`AGENTS.md`、`SKILL.md`、`references\9x` 属于作者，**没得到你明确同意，助手一个字都不许改**；你自己的规矩往 `references\` 里加模块。想验有没有被偷改：`python tools/skeleton_guard.py`（对照 `SKELETON.sha256`，改过 / 缺失 / 多塞的都会列出来）
 
 ## 它治什么毛病
 
@@ -53,40 +58,46 @@
 | 每次对话都重新烧一遍全文 | 索引先筛，只取几条 |
 | 换台机器记忆就没了 | 一个目录拷走，重建两条命令 |
 | 只加不删，越堆越大 | 时间衰减 + 冷热三态 + 手动归档 |
-| 记忆写坏了没法回滚 | git 管着，随时 `git log` / `git revert` |
+| 记忆写坏了没法回滚 | `memdb.py snapshot` 打 zip 快照（留最近 20 份）；装了 git 也能用 `git log` / `git revert` |
+| 说话一股 AI 味 | 语气模块开局必读，去 AI 腔十条直接查 |
+| 让它代笔，写出来不像自己 | 记住你的用词与句式，替你写时套回去；立场不跟着改 |
+| 你说什么它都说「好的」 | 只服证据与理由；不同意直接说，顶完给活路 |
+| 助手顺手改了你不想让它动的东西 | 骨架禁区写进入口，改没改过用 `skeleton_guard.py` 对照清单核 |
 
-## 五分钟跑起来
+## 快速开始（三步，不用敲任何命令）
 
-```bash
-# 1. 拿到框架版（空的，只有骨架和工具）
-git clone https://github.com/Aznobin/shiori-memory.git
-cd shiori-memory
+**不用装 git、不用联网、不用装数据库、不用跑初始化命令。** 一共三步：
 
-# 2. 建索引：把每个片段的标题、关键词、日期抽出来
-python tools/frag.py build
+**1. 解压** —— 下载 zip，解到任意目录（比如 `%USERPROFILE%\shiori-memory`）：
 
-# 3. 查东西
-python tools/frag.py search 笔记标签
+> https://github.com/Aznobin/shiori-memory/archive/refs/heads/master.zip
 
-# 4. 打包给模型看（模拟一次开局注入）
-python tools/frag.py pack
+**2. 复制一个文件** —— 把库根那份 `AGENTS.md` 复制到你的工作目录根：
+
+```text
+Windows       copy AGENTS.md C:\你的工作目录\
+macOS/Linux   cp AGENTS.md ~/你的工作目录/
 ```
 
-跑完 `fragments/index.json` 就是索引，`search` 出来的结果带上片段编号和文件路径，直接读那一个文件就够。
+**3. 开工** —— 打开你的 AI 助手，正常说话。助手进到这个目录会自己读到 `AGENTS.md`。
 
-## 先把它接到工作区（AGENTS.md）
+没有第 4 步。
 
-库里有个 `AGENTS.md`，它不是说明书，是**入口**：告诉每一次新会话「这里有个记忆库、内容在哪、怎么读、怎么写」。
+> **关于 python**：后面那些 `python tools/...` 是**助手在读记忆、写记忆时自己调的**，不是给你部署用的。你不用敲、不用先跑一遍才叫装好、不用起服务、不用建数据库。机器上只要有个 python 在 PATH 里（多数 AI 编码助手环境自带）就够了。
 
-拿到库之后，把它复制到你平时干活的工作目录根（和项目文件夹平级放着）：
+### 为什么是「复制这个文件」
 
-```bash
-cp AGENTS.md ~/你的工作目录/AGENTS.md
-```
+`AGENTS.md` 不是说明书，是**入口**：告诉每一次新会话「这里有个记忆库、库在哪、怎么读、怎么写」。
 
-Windows 用 `copy AGENTS.md %USERPROFILE%\你的工作目录\`。之后助手一进这个目录就会读它，顺着里面的路径找到库；库挪了位置只改这一个文件。
+**它开头只有三行**：库在哪、先当普通助手、需要时再查。规矩都压在后面的小节、标着「用到再看」——**别让助手一进门就背规矩**，那只会把它变成念章程的机器。
+
+> 文件里的 `<记忆库>` 是占位符。复制出去之后把那一行换成库的绝对路径（`SKILL.md` 所在的那个目录）。忘了换也行——文件里写明了「还是尖括号就问用户一句」。
 
 `SKILL.md` 是库里面的协议与路由（读法、写法、命令），`AGENTS.md` 是库外面那个「带你过来」的路标——一个对内一个对外。
+
+想少动手也可以跑 `setup.ps1 -Workspace <你的工作目录>`：它会填好路径、把 `AGENTS.md` 复制过去、顺手建好索引。**但这不是必须的**，解压 + 复制一样能跑。
+
+> 装了 git 的人也可以用 `git clone` 取库（好处是每次改动能回滚、换机器方便）：`git clone https://github.com/Aznobin/shiori-memory.git`。没装 git 就用上面的 zip，功能一样。
 
 ## 目录长什么样
 
@@ -125,11 +136,26 @@ dist/               # 打包临时产物，随时可删
 
 这样检索单位够细（命中准），喂给模型的却是整段（不碎片化），两头都占。
 
-## 工具都有哪些
+## 命令都是自动跑的（不用你操作）
+
+这套东西的前提是：**你只跟助手说话，命令由它自己调。** 下面这张表说的是「什么时候自动发生」，不是「你要执行的步骤」。
+
+| 什么时候 | 自动发生了什么 |
+| --- | --- |
+| 你第一次问到以前的事 | 自动建索引（几秒），然后只读命中的那一两个片段 |
+| 你说了一件该记的事（偏好变了、纠正了它、项目有进展） | 有子智能体就派给它去写、自己接着说；没有就当场写。两条路都自动走闸门：查模块 → 插到该去的小节 → 改 `updated` → 补一行变更日志 → 重建索引 |
+| 每天收工（配了定时才有） | 自动跑一次衰减结算 + 体检 |
+| 骨架出了新版本 | 开局时只提示你一句「有新骨架 A → B」，**升不升你自己定**，它不自作主张去换 |
+
+**你不需要做的事**：不用先跑 `build` 才算装好、不用手动建库建表、不用起服务、不用写 SQL、不用背命令。这些要么是自动的，要么是助手的事。
+
+**记忆是谁写的**：如果你的助手环境支持子智能体，它会派一个专门管记忆的助手（比如 `memo`）去写，自己接着说、不站着等；不支持就在那一轮自己写。两种你不用管是谁写的、也不用提醒它「记得写」。
+
+> 下面这张表是它背后调的命令，留给你查证——想知道它到底动了什么、或者你自己想手动跑一次时再看。
 
 | 命令 | 干什么 |
 | --- | --- |
-| `python tools/frag.py build` | 重建片段与索引 |
+| `python tools/frag.py build` | 重建片段与索引（平时不用手动跑：第一次 `search` / `memread` 会自动建） |
 | `python tools/frag.py search 词` | 查片段，默认折叠同源 |
 | `python tools/frag.py pack` | 打包成一份可以直接塞进 prompt 的文本 |
 | `python tools/frag.py lint` | 体检：空标题、重复编号、坏元数据 |
@@ -190,42 +216,59 @@ python tools/import_notes.py --apply                # 审完标 OK 之后，把 
 
 ## 隐私与安全
 
-这个库的设计前提是：**它随时可能被公开**。所以：
+这个库的设计前提是：**它随时可能被公开**。所以框架版里一条私人内容都没有——`references/` 只留协议件和机制文档，`01-89` 那些主题模块是空壳。
 
-- 私人内容（日记、健康、情绪、身份设定）单独成模块，发布脚本里有一道**隐私门**，扫到私人关键词就中止，不许先提交再修
-- 框架版不含任何私人模块，`references/` 只留协议件和机制文档
-- 拿到的框架版里 `references/01-89` 是空的，你需要自己往里填 —— 填什么由你决定
+**但你自己那份不一样。** 你往里写的第一条日记、第一条健康记录，就让它变成了不该公开的东西。
+
+### 自己的记忆库建在哪
+
+- **纯本地**（最省事，推荐大多数人）：解压到一个本地目录就能用，不需要任何仓库。备份靠 `python tools/memdb.py snapshot` 打 zip。
+- **私有仓库**（要备份 / 多机同步）：GitHub → New repository → 勾 **Private**（免费账号也能建无限个私有库）→ `git remote add origin git@github.com:<你的账号>/<仓库名>.git`。推之前确认右上角写着 Private。
+- **不要 fork 公开库再往里写**：fork 出来的仓库继承原仓库的可见性，是公开的。
+- **不要往任何公开仓库写私人内容**，包括这个框架的发行库。
+
+### 写之前先问自己一句
+
+这条内容如果明天出现在公开网页上，我能接受吗？不能，就别写进任何会联网的仓库。
+
+健康、情绪、住址、账号、真实姓名这类，连私有库也谨慎——私有库可能哪天被你自己改成公开，或者你手滑推到别处。
 
 ## 装成技能用（DSH）
 
 这个目录本身就是 DSH 的技能包（skill）：`SKILL.md` 是入口文件，`references/` 是正文。`SKILL.md` 开头的 frontmatter（`name` + `description`）告诉 DSH 什么时候该调它。
 
-```bash
-# DSH 的技能目录
-git clone https://github.com/Aznobin/shiori-memory.git C:\Users\<你>\.agents\skills\shiori-memory
+把解压好的目录放到 DSH 的技能目录（不用 git，直接拷文件夹）：
+
+```text
+%USERPROFILE%\.agents\skills\shiori-memory
 ```
 
-放好之后不用额外注册，DSH 读到 `SKILL.md` 就知道什么时候用它；第一次用先跑 `python tools/frag.py build`。
+或者用命令行建目录再拷：
+
+```powershell
+New-Item -ItemType Directory -Force %USERPROFILE%\.agents\skills\shiori-memory
+Copy-Item -Recurse 解压出来的目录\* %USERPROFILE%\.agents\skills\shiori-memory
+```
+
+放好之后不用额外注册，DSH 读到 `SKILL.md` 就知道什么时候用它；第一次查会自动建索引，不用先跑 `build`。
 
 **只做了 DSH 的适配**，别的助手没有验证过；要用得自己接。
 
 ## 框架版怎么取
 
-两种方式，随便挑：
+**不用 git**（推荐）：浏览器打开
+`https://github.com/Aznobin/shiori-memory/archive/refs/heads/master.zip`
+下载解压即可。
+
+**用 git**：
 
 ```bash
-# 只要空骨架 + 工具
 git clone https://github.com/Aznobin/shiori-memory.git
-
-# 想要固定版本（克隆后进目录再切）
-git checkout framework-v0.3.0
 ```
 
-公库远端只有 `main` 一条分支，没有 `framework` 分支，所以**别写 `-b framework`**（会 `fatal: Remote branch framework not found`）；`framework-v0.3.0` 是打在 `main` 上的 **tag**，克隆下来再 `git checkout` 就能切到那个版本。
+固定某个版本就用 tag：`git checkout framework-v0.3.32`（tag 名里的版本号会随发行更新）。
 
-`main` 是**孤儿分支**（orphan branch）起点，不带私人仓库的历史，所以拿到的是一份干净的新起点，不会被别人的笔记污染。
-
-`dist/` 目录里的 zip 只是打包临时产物，长期分发请看分支和 tag。
+公库只有 `master`（发行）和 `main`（框架工作区）两条分支，默认是 `master`。
 
 ## 升级骨架
 

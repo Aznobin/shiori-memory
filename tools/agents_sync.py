@@ -8,7 +8,7 @@
   python tools/agents_sync.py --agents <路径>  # 指定 AGENTS.md
   python tools/agents_sync.py --quiet          # 静默（给 memgit.py 内部调用）
 
-为什么要有这个（2026-10-21 她提的问题）：
+为什么要有这个（2026-10-21 用户提的问题）：
   工作区 `AGENTS.md` 不进 git，每台设备各写一份，个性内容本来就该不同——
   但「硬塞层」和「记忆大类表」这两块**必须处处一样**，不然 A 设备有的规矩
   B 设备没有，同一个 agent 换台机器就换了个脑子。
@@ -105,7 +105,7 @@ def _section_bounds(text: str, heading_re: str) -> tuple[int, int] | None:
 
 
 def inject_core(text: str, block: str) -> str:
-    """CORE 块：优先放 §8 里（保留她自己的标题与引言），没有 §8 就另起一节。
+    """CORE 块：优先放 §8 里（保留用户自己的标题与引言），没有 §8 就另起一节。
 
     已有 §8 但没有托管块 = 手抄的旧清单。手抄版本千奇百怪（条目数不同、
     编号可能是 `10b.`、末尾可能带备注），按「从第一条编号行砍到节尾」整段替换，

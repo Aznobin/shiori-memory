@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import compileall
+import hashlib
 import json
 import shutil
 import subprocess
@@ -44,9 +45,10 @@ def pack_kind(pkg: Path) -> str:
     """两种产物形态，判据不一样，别混着测：
 
     - framework：framework.py 从 orphan 分支导出的骨架包，自带根 AGENTS.md + manifest.json
-    - pack：pack.py 出的分发包，根 AGENTS.md 由用户自己的工作区持有，包里只给 templates/AGENTS.md
+    - pack：pack.py 出的分发包，根 AGENTS.md 是给用户复制到工作区的模板（占位符没填），
+      另外还有一份 templates/AGENTS.md 供 setup 用
     """
-    if (pkg / "manifest.json").exists() or (pkg / "AGENTS.md").exists():
+    if (pkg / "manifest.json").exists():
         return "framework"
     if (pkg / "templates" / "AGENTS.md").exists():
         return "pack"
@@ -152,7 +154,11 @@ def check_routes(pkg: Path) -> None:
     target = pkg / "AGENTS.md"
     if not target.exists():
         record(P1, "routes.py 写入 AGENTS.md", None,
-               "包内没有根 AGENTS.md（pack 产物由用户工作区持有），跳过")
+               "包内没有根 AGENTS.md，跳过")
+        return
+    if pack_kind(pkg) == "pack":
+        record(P1, "routes.py 写入 AGENTS.md", None,
+               "根 AGENTS.md 是给用户复制到工作区的模板，路由在用户工作区那次生成，跳过")
         return
     r = run(pkg, "tools/routes.py")
     ok = r.returncode == 0
@@ -182,16 +188,48 @@ def check_update(pkg: Path, net: bool) -> None:
         record(P1, "update.py check", None, "超时（网络）")
 
 
+def check_skeleton(pkg: Path) -> None:
+    """骨架清单存在且自洽：SKELETON.sha256 里每一行都要和包里的文件对得上。
+
+    2026-10-24 加的：分发包要让使用者能自证「骨架没被动过」，这份清单就是凭据；
+    清单本身写错了（少一行、哈希对不上）比没有更糟——它会让人以为自己干净。
+    """
+    manifest = pkg / "SKELETON.sha256"
+    if not manifest.exists():
+        record(P1, "SKELETON.sha256", False, "缺骨架校验清单（skeleton_guard.py 会没法自证）")
+        return
+    bad: list[str] = []
+    n = 0
+    for line in manifest.read_text(encoding="utf-8").replace("\r\n", "\n").split("\n"):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2 or len(parts[0]) != 64:
+            bad.append(f"格式不对: {line[:40]}")
+            continue
+        n += 1
+        target = pkg / parts[1].strip()
+        if not target.exists():
+            bad.append(f"清单里有包里没有: {parts[1]}")
+            continue
+        got = hashlib.sha256(target.read_bytes()).hexdigest()
+        if got != parts[0]:
+            bad.append(f"哈希对不上: {parts[1]}")
+    record(P1, "SKELETON.sha256 自洽", not bad,
+           f"{n} 项全部对得上" if not bad else "; ".join(bad[:3]))
+
+
 def check_assets(pkg: Path) -> None:
     kind = pack_kind(pkg)
     if kind == "framework":
         want = ["AGENTS.md", "SKILL.md", "README.md", "VERSION", "manifest.json", "LICENSE",
                 "references", "tools", "bin", "setup.ps1", "config.example.json"]
         banned = ["ENTRY.md", "templates/AGENTS.md"]
-    else:  # pack：根 AGENTS.md / manifest.json 本来就不该在包里
-        want = ["SKILL.md", "README.md", "VERSION", "LICENSE", "references", "tools", "bin",
-                "setup.ps1", "config.example.json", "templates/AGENTS.md"]
-        banned = ["ENTRY.md", "AGENTS.md", "manifest.json"]
+    else:  # pack：带一份根 AGENTS.md 给用户复制到工作区；manifest.json 不该在
+        want = ["AGENTS.md", "SKILL.md", "README.md", "VERSION", "LICENSE", "references", "tools",
+                "bin", "setup.ps1", "config.example.json", "templates/AGENTS.md"]
+        banned = ["ENTRY.md", "manifest.json"]
     missing = [w for w in want if not (pkg / w).exists()]
     record(P0, f"必备文件齐全（{kind}）", not missing,
            "齐全" if not missing else "缺: " + ", ".join(missing))
@@ -228,6 +266,7 @@ def main() -> int:
     print(f"产物来源: {origin}")
     print("-" * 60)
     check_assets(pkg)
+    check_skeleton(pkg)
     check_syntax(pkg)
     check_urls(pkg)
     check_frag(pkg)

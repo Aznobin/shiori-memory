@@ -317,7 +317,7 @@ def is_framework_path(rel: str) -> bool:
 
 # 用户自己长出来的结构件：升级永远不碰它们。
 # 教训（2026-10-24 新设备 shiori-old 实测）：`变更日志` 是 `distribute: reset`，
-# 包里只有表头，apply 一覆盖她 24 条日志全没了；`CATALOG` 是主库目录，覆盖成 55 模块。
+# 包里只有表头，apply 一覆盖用户 24 条日志全没了；`CATALOG` 是主库目录，覆盖成 55 模块。
 # 这些东西的正确归属是「用户的库」，不是「骨架」。
 USER_OWNED = (
     "references/变更日志.md",
@@ -409,7 +409,7 @@ def apply_via_manifest(dry: bool = False) -> int:
                 user_touched = False
             elif rel.startswith("references/9"):
                 # 协议件（90-99）常带用户自己写进去的原话，骨架版是脱敏版，
-                # 直接覆盖等于把她的原话换成「（已隐去）」——降级。写 .new 让她自己挑。
+                # 直接覆盖等于把用户的原话换成「（已隐去）」——降级。写 .new 让用户自己挑。
                 user_touched = True
             elif in_git_repo():
                 user_touched = bool(git("status", "--porcelain", "--", rel).stdout.strip())

@@ -43,7 +43,7 @@ MAX_LINES = int(os.environ.get("FRAG_MAX_LINES", "4"))   # 单片段上限，可
 WHOLE_MODULES = {"00"}
 WHOLE_MAX_LINES = int(os.environ.get("FRAG_WHOLE_MAX_LINES", "40"))
 
-# 退休行（软删，2026-10-24 她定的「删是软删」）：正文留在 md 里，但不进片段、不被检索命中。
+# 退休行（软删，2026-10-24 用户定的「删是软删」）：正文留在 md 里，但不进片段、不被检索命中。
 # 依据 `references/90` §4「本库没有容量压力，删等于丢」。
 RETIRED_RE = re.compile(r"（已退休 \d{4}-\d{2}-\d{2}：")
 MIN_CHARS = 20          # 太短的段落并入上一片段
@@ -478,8 +478,19 @@ _STATS_CACHE: dict = {"key": -1, "idf": {}, "avg": 1.0}
 def load_index() -> list[dict]:
     p = FRAG / "index.json"
     if not p.exists():
-        print("还没有切片，先跑 python tools/frag.py build", file=sys.stderr)
-        raise SystemExit(1)
+        # 2026-10-24（用户定的）：解压就能用，不许再让人先跑一条 build。
+        # 第一次读到这里自动建一次，建不出来才报错。
+        print("（第一次用，先建一次切片……）", file=sys.stderr)
+        try:
+            rc = build()
+        except SystemExit as e:  # build 内部可能直接 sys.exit
+            rc = e.code if isinstance(e.code, int) else 1
+        except Exception as e:  # noqa: BLE001
+            print(f"自动建切片失败：{type(e).__name__}: {e}", file=sys.stderr)
+            rc = 1
+        if rc != 0 or not p.exists():
+            print("自动建切片没成功，手动跑一次看报错：python tools/frag.py build", file=sys.stderr)
+            raise SystemExit(1)
     mtime = p.stat().st_mtime_ns
     if _IDX_CACHE["mtime"] == mtime and _IDX_CACHE["idx"]:
         return _IDX_CACHE["idx"]
@@ -521,7 +532,7 @@ def query_tokens(q: str) -> set[str]:
     return {t for t in tokens_of(q) if t not in STOPWORDS}
 
 
-EXPAND_W = 0.45   # 同义扩展词的权重：只加召回，不许盖过她原话
+EXPAND_W = 0.45   # 同义扩展词的权重：只加召回，不许盖过用户原话
 
 
 def expand_query(q: str) -> tuple[set[str], dict[str, float]]:
@@ -574,7 +585,7 @@ def score(item: dict, q: set[str], idf: dict[str, float], avgdl: float | None = 
         if t in ttl:
             s += w * 2.0
         if t in modt:
-            s += w * 1.0   # 模块标题命中：她是按模块记事的，标题就是主题
+            s += w * 1.0   # 模块标题命中：用户是按模块记事的，标题就是主题
         if t in modkw:
             s += w * 0.8   # 模块级 keywords：整个模块的主题标签，比单片段标题弱一档
     # 时间混合式：只让新鲜度占 30%，老但最相关的片段不会被顶掉（precision 优先）
@@ -583,16 +594,16 @@ def score(item: dict, q: set[str], idf: dict[str, float], avgdl: float | None = 
 
 # ---------------------------------------------------------------- 人设分边
 #
-# 2026-10-22 她报的：人设部分的命中率低，她自己的和我自己的都低。实测确实是——
-# 模块 `78`/`85`/`86`（我）与 `01`/`31`/`29`（她）的 keywords 高度重叠，
+# 2026-10-22 用户报的：人设部分的命中率低，用户自己的和我自己的都低。实测确实是——
+# 模块 `78`/`85`/`86`（我）与 `01`/`31`/`29`（用户）的 keywords 高度重叠，
 # 「性格」「人格」「脾气」这些词两边都写了，纯 BM25 分不开，于是：
-#   问「你是什么性格」→ 榜首是 `31`（她的侧写）
+#   问「你是什么性格」→ 榜首是 `31`（用户的侧写）
 #   问「我是个什么样的人」→ 榜首是 `78`（我自己的性格）
 # 词表再补也治不了，因为两边的词是**同一批**。唯一可靠的信号是**人称**：
 # 谁紧贴在主题词前面，问的就是谁。
 
 SELF_MODULES = {"78", "85", "86"}     # 我：性格 / 账 / 立场
-USER_MODULES = {"01", "31", "29"}     # 她：背景 / 侧写 / 命名
+USER_MODULES = {"01", "31", "29"}     # 用户：背景 / 侧写 / 命名
 
 SUBJECT_TOPICS = (
     "性格", "人格", "人设", "脾气", "侧写", "口味", "雷点", "原则", "立场",
@@ -600,7 +611,7 @@ SUBJECT_TOPICS = (
     "这个人", "那个人", "顺着", "讨好", "附和",
     "喜欢", "爱好", "兴趣", "在意", "讨厌", "烦",
 )
-SELF_PRON = ("你自己", "你", "用户", "妳")
+SELF_PRON = ("你自己", "你", "助手", "妳")
 USER_PRON = ("我自己", "我", "俺", "窝", "咱")
 
 SUBJECT_BOOST = 1.35      # 同一侧：抬
@@ -611,10 +622,10 @@ PRON_WINDOW = 7           # 主题词前面看几个字（5 太窄：「你有�
 
 
 def subject_of(query: str) -> str | None:
-    """这句话在问谁：`self`（我）/ `user`（她）/ `None`（跟人设无关）。
+    """这句话在问谁：`self`（我）/ `user`（用户）/ `None`（跟人设无关）。
 
     判据是**人称离主题词的距离**，不是出现次数：`你怎么看我的性格` 里两个人都出现了，
-    但「我」紧贴「性格」，所以问的是她。
+    但「我」紧贴「性格」，所以问的是用户。
     """
     low = (query or "").lower()
     if not low:
@@ -645,7 +656,7 @@ def subject_of(query: str) -> str | None:
                         best = (key, side)
     if best:
         return best[1]
-    # 没有主题词时只认复合人称（「你自己」「我自己」「用户自己」）：
+    # 没有主题词时只认复合人称（「你自己」「我自己」「助手自己」）：
     # 光凭一个「你」字就判边会把「你写的那段代码报错了」也拉进人设，
     # 兜底必须比主题词那条路更保守。
     for group, side in ((SELF_PRON, "self"), (USER_PRON, "user")):
@@ -658,7 +669,7 @@ def subject_of(query: str) -> str | None:
 def subject_bias(query: str, scores: dict[str, float]) -> dict[str, float]:
     """按人称给**模块**分加权：同侧抬、反侧压，并把同侧最强者顶到榜首。
 
-    只作用在人设那 7 个模块上，别的模块一分不改——她问技术问题时这条规则完全空转。
+    只作用在人设那 7 个模块上，别的模块一分不改——用户问技术问题时这条规则完全空转。
     为什么还要「顶榜」：`78/85/86` 与 `01/31/29` 的词表几乎重合，靠乘一个 1.35 的
     系数翻不过 `92`（记忆机制本身也写了「性格」「人格」这些词）。人称已经把问题
     答出来了，就不该再让词频决定榜首；但只有同侧真有关联（≥ 原榜首 15%）才顶，
@@ -1015,9 +1026,9 @@ def cmd_pack(args: argparse.Namespace) -> int:
 
 
 def cmd_auto(args: argparse.Namespace) -> int:
-    """主动检索：把她这一句话直接丢进来，当场吐出该读的片段（不用先想关键词）。
+    """主动检索：把用户这一句话直接丢进来，当场吐出该读的片段（不用先想关键词）。
 
-    判据：她的原话里如果有稀有线索引（avg_idf ≥ 1.5）就按查询匹配挑主片段；
+    判据：用户的原话里如果有稀有线索引（avg_idf ≥ 1.5）就按查询匹配挑主片段；
     全是「什么 / 现在 / 是不是」这类大词时，说明这句话本身没有可检索的线索，
     退回核心抽取并说明原因，免得硬排出一堆噪声。
     """
@@ -1173,7 +1184,7 @@ def main() -> int:
     p.add_argument("--seed", type=int, default=None, help="固定随机抽样种子，方便 A/B 与复现")
 
     p = sub.add_parser("auto")
-    p.add_argument("text", nargs="+", help="她的原话，原样丢进来")
+    p.add_argument("text", nargs="+", help="用户的原话，原样丢进来")
     p.add_argument("--main", type=int, default=3)
     p.add_argument("--random", type=int, default=1)
     p.add_argument("--follow", type=int, default=0)

@@ -1,0 +1,19 @@
+# 机器状态，不进版本库、不进压缩包
+tools/memdb.sqlite3
+tools/__pycache__/
+tools/.style_override.json
+
+# 打包产物：dist/ 里只留版本压缩包（zip 进 git，多设备取同一份版本包；解压目录忽略）
+dist/*
+*.zip
+!dist/*.zip
+
+# 个人定制（setup 会生成，别人机器上各自不同）
+memory.config.json
+
+# 生成物：片段层由 references 重建，不进版本库（每次改记忆都会重编号，进 git 只会制造冲突）
+fragments/
+
+# 框架分支的临时 worktree（framework.py --build 生成）
+.framework/
+state/update.json

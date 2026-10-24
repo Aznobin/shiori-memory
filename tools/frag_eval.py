@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """frag_eval.py —— 片段层命中率自测。
 
-做法：随机抽 N 个片段，用它的标题/关键词造查询（模拟"她提一嘴"），
+做法：随机抽 N 个片段，用它的标题/关键词造查询（模拟"用户提一嘴"），
 看检索能不能把原片段排进前 1 / 3 / 5 名，顺带算 MRR。
-这是自检索（self-retrieval），衡量的是索引与打分的质量，不是她的真实问法，
+这是自检索（self-retrieval），衡量的是索引与打分的质量，不是用户的真实问法，
 但能稳定发现"切得太碎、关键词没进索引、打分偏到主片段"这类退化。
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ import frag  # noqa: E402
 
 
 def make_query(item: dict, df: dict[str, int]) -> str:
-    """从片段里挑「稀有词」当查询——模拟她提一个具体说法，而不是模块级大词。"""
+    """从片段里挑「稀有词」当查询——模拟用户提一个具体说法，而不是模块级大词。"""
     rare = [t for t in item.get("tokens", [])
             if 2 <= len(t) <= 8 and df.get(t, 0) <= 2 and not t.isdigit()]
     random.shuffle(rare)

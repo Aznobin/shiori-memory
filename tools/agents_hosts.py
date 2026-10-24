@@ -9,10 +9,10 @@
   python tools/agents_hosts.py --list       # 列出已有主机备份
   python tools/agents_hosts.py --hosts A,B  # 多台一起改时，把 A 的规则并进 B（同一段规则同步到所有主机）
 
-为什么要有这个（2026-10-22 她提的）：
-  她原话「skill中存三个，一个框架，一个笔记本一个itx，然后要改一起改」。
+为什么要有这个（2026-10-22 用户提的）：
+  用户原话「skill中存三个，一个框架，一个笔记本一个itx，然后要改一起改」。
   `AGENTS.md` 分三份：`templates/AGENTS.md` 是空框架（给人起步用），
-  `templates/hosts/laptop.md`（笔记本）与 `templates/hosts/<host>.md`（台式 ITX）是两台机器的完整版，
+  `templates/hosts/<本机名>.md`（笔记本）与 `templates/hosts/<host>.md`（台式 ITX）是两台机器的完整版，
   全在 git 里；改规则时三份一起改，换机器只要跑一次本脚本把对应那份铺下去。
   主机名不认识的机器，用 `--save` 先存一份，下次就有它了。
 """

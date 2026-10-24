@@ -46,11 +46,11 @@ relates_to: ["93"]
 3. 那轮 `log` 里的 `chars > 0`；
 4. 会话日志里有由 hook 送进上下文的卡：`data.source.kind == "hooks-codex"`，且按**严格配对**落在「这条 `hook/result` 到下一条之间」的窗口里。
 
-- **配对不能用固定时间窗**（小冬 2026-10-20 复现三处误判）：原先用最后一条 hook 前后 ±120 秒，结果 `turn 19`（19:03:22）配到了 `19:04:41` 的卡（那是 `turn 20` 的）、`turn 20` 配到 2 张、**最后那条 19:13:20 配到 19:11:48 的卡，明明 `gate:wait` 却印「四件齐了」**。改成 `card.time >= hook.time and < 下一条 hook.time` 才对。
-- **这个工具回答的是「最近这一轮交没交」，不是「hook 通不通」**（小冬同一轮指出，很关键）：同一条会话隔四分钟再跑，结论就翻面（我自己就拿着旧的「四件齐」预期去验收，结果变成 `exit 2`）。现在输出里固定加一行提示把两件事分开。
+- **配对不能用固定时间窗**（2026-10-20 复现过三处误判）：原先用最后一条 hook 前后 ±120 秒，结果 `turn 19`（19:03:22）配到了 `19:04:41` 的卡（那是 `turn 20` 的）、`turn 20` 配到 2 张、**最后那条 19:13:20 配到 19:11:48 的卡，明明 `gate:wait` 却印「四件齐了」**。改成 `card.time >= hook.time and < 下一条 hook.time` 才对。
+- **这个工具回答的是「最近这一轮交没交」，不是「hook 通不通」**（同一轮指出，很关键）：同一条会话隔四分钟再跑，结论就翻面（我自己就拿着旧的「四件齐」预期去验收，结果变成 `exit 2`）。现在输出里固定加一行提示把两件事分开。
 - **判交付认 `data.source.kind == "hooks-codex"`，这个字段真的存在**：实测 `ab836630` 有 4 条、4 张卡；`d966adaf` 3 条、3 张卡；`8894a112` 1 条、1 张——**1:1 对应**，而且不会误命中 subagent 的结案报告。
 - **纯靠文本判一定会假阳性**：先用 `"记忆·按需注入" in text`，结果 subagent 的结案报告因为引用了这个标记被当成注入卡；改 `startswith("【记忆·按需注入】")` 才挡住。现在两者并用：`source.kind` 做主判据，`startswith` 只作为「文本是否带标记」的二次提示打给人看。
-- **条数判据必须乘上 point 数**：`hooks.json` 只登记 1 条 `UserPromptSubmit` 时，`len(rows) % 1 == 0` 恒真 —— 上一版等于没查（小冬指出）。改成按 point 分组核对。
+- **条数判据必须乘上 point 数**：`hooks.json` 只登记 1 条 `UserPromptSubmit` 时，`len(rows) % 1 == 0` 恒真 —— 上一版等于没查（验收时发现）。改成按 point 分组核对。
 - **归属问题无解**：`hook/invoked` 事件里没有 `command` 字段（`dsh-hooks-codex/lib/index.js:149-155` 的 `appendHookInvoked` 只写 `turn/point/dialect/handlerId/matcher`），工具没法区分哪条 `0` 是探针、哪条是 recall。所以探针只能删掉，别留着当"辅助验证"——它只会污染判据。
 
 ## 3. 判据写法踩过的五次坑（`hookcheck.py` 里逐版留了注释）
@@ -69,14 +69,14 @@ relates_to: ["93"]
 - **会话日志里 19:05:49 出现 `user/message`，内容以 `【记忆·按需注入】（topic-shift，2 条）` 开头** —— 这是唯一能证明「宿主 adopt 了 additionalContext」的直接证据。
 - `python tools\hookcheck.py --session ab836630` → `exit 0`，结案句「四件齐了」。
 
-## 5. 别再拿这些当证据（小冬 2026-10-20 逐条驳过，留档防复发）
+## 5. 别再拿这些当证据（2026-10-20 逐条驳过，留档防复发）
 
 - `seen` 非空：只能推出 `emit()` 被调用过（`recall.py` 同一 if 分支），推不出模型收到了字。
 - 状态文件里的 `turn` / `seen`：是**某一时刻的快照**，隔一会儿再读就变了；写进文档当「硬证据」等于用过期快照冒充现状。
 - `durationMs` 几百毫秒：推不出「这条不是探针」——`hook/invoked` 里没有 `command` 字段，本来就没有归属信息。
 - `decision: pass`：全挂的轮次也是 `pass`（turn 2 是 `exit 3221225794`、turn 3 是 `exit 1` + ParserError），这个字段永远别当判据。
-- **`chars` 本身也证明不了交付**（小冬 2026-10-20 补的刀）：`chars` 是 `len(card)`，写在 `%TEMP%` 一个普通文件里，只证明 `recall.py` 构造出了卡并写了 stdout，**证明不了宿主 adopt 了它**。手工 `recall.py hook --session <真 id>` 喂一句，所有字段看起来跟真跑一模一样。所以判据 4（日志里那张卡）才是唯一硬证据。
-- **同一天我在这个字段上栽过一次，值得留档**：我先查 `data.message.source` 得到 86 条全空，据此在对话里**公开「纠正」小冬，说用户说的 `source.kind` 不存在**。真相是字段在 **`data.source`**，`message.source` 是另一层。教训：**结构没查清就否定别人的结论，比不查更糟**——不查只是不知道，乱纠正会把对的东西推倒。
+- **`chars` 本身也证明不了交付**（2026-10-20 补的一刀）：`chars` 是 `len(card)`，写在 `%TEMP%` 一个普通文件里，只证明 `recall.py` 构造出了卡并写了 stdout，**证明不了宿主 adopt 了它**。手工 `recall.py hook --session <真 id>` 喂一句，所有字段看起来跟真跑一模一样。所以判据 4（日志里那张卡）才是唯一硬证据。
+- **同一天我在这个字段上栽过一次，值得留档**：我先查 `data.message.source` 得到 86 条全空，据此在对话里**公开「纠正」，说用户说的 `source.kind` 不存在**。真相是字段在 **`data.source`**，`message.source` 是另一层。教训：**结构没查清就否定别人的结论，比不查更糟**——不查只是不知道，乱纠正会把对的东西推倒。
 
 ## 6. 「通道通了」≠「记忆交付了」
 
@@ -92,7 +92,7 @@ relates_to: ["93"]
 - 这轮还发现 `turn 30` 条数不齐（`UserPromptSubmit 2/1`），属于闸门与 hook 触发次数的正常错位，不算异常。
 - **闭环缺口**：通道已通（`exit=0`）但交付仍是 `0 字`，要等一次 `chars > 0` 才算真进上下文。
 
-## 8. <你的笔记本> 本机装法（2026-10-22，与 §1「宿主自带」不同）
+## 8. 本机装法（2026-10-22，与 §1「宿主自带」不同）
 
 - 本机宿主是 `@deepseek-ai/dsh-desktop-runtime` **0.2.1-rc.2**，`app.asar` 里**没有** `dsh-hooks-codex` / `dsh-hook-protocol`（§1 的「宿主自带」只对 0.2.0-rc.2 那份包成立，别照搬）。**必须往 profile 装包**，否则插件登记了也不跑：`fiberPhase: null` = 模块解析不到。
 - 装法（`where pnpm` 找不到，只能用 bundled 的；workdir `%USERPROFILE%\.dsh\profiles\desktop`）：
@@ -104,7 +104,7 @@ relates_to: ["93"]
 
 ## 9. 「挂 hook 就会话崩溃」到底是谁干的（2026-10-22 查日志定案）
 
-原话（已隐去）。翻遍 `%USERPROFILE%\.dsh\sessions\` 16 个会话逐条查 `turn/end`：
+用户原话：「为什么每次挂hook就会会话崩溃呢，有规避方法吗」。翻遍 `%USERPROFILE%\.dsh\sessions\` 16 个会话逐条查 `turn/end`：
 
 - **hook 命令失败本身不崩会话**：`session-0c06bffa` 里 11 次 `hook/invoked` 全败（9 次 `exitCode 3221225794` + 3 次 `exit 1`），它 turn 1～6 全是 `{kind:completed}`，一路聊到 turn 8。协议把失败记成 `decision: pass` **静默吞掉**，会话根本不知道。
 - **真崩只有 2 次，全是 `aborted: disposed`**，而且都是同一个原因：我拿 `plugin_manager set_plugin include:sandbox-policy enabled:false` 当热重载按钮，拆了 shell/sandbox 的依赖 fiber。见 §7 第 3 条。

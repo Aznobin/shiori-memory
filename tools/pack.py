@@ -20,6 +20,7 @@ python tools/pack.py --keep-dir      # 压包的同时保留解压目录
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -40,7 +41,7 @@ def read(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-# 2026-10-24 她的口径：「别人的骨架应该是全空的」。
+# 2026-10-24 用户的口径：「别人的骨架应该是全空的」。
 # 所以 references/*.md 的默认值反过来：只有系统区（90–99）与协议件默认 keep，
 # 其余（01–89、08a、12a…）**默认 drop**，要进包必须自己在 frontmatter 写 distribute。
 DEFAULT_KEEP_RE = re.compile(r"^(9[0-9]|CATALOG|_模板|_待确认|变更日志)")
@@ -88,7 +89,7 @@ def get_head(body: str) -> tuple[str, str]:
 
 def to_blank(text: str, hint: str = "") -> str:
     fm, body = split_doc(text)
-    # 2026-10-24：只有 frontmatter 是「空槽」还漏——她的兴趣、学科、项目名
+    # 2026-10-24：只有 frontmatter 是「空槽」还漏——用户的兴趣、学科、项目名
     # 全写在 keywords 里，blank 之后照样把整串关键词发出去。keywords 一律换成占位。
     # 占位优先用模块自己的通用名（`07-项目.md` → 项目），这样空槽还能被「项目」这类词命中；
     # 拿不到才退回「待填」——「待填」两个字谁也不会在笔记里写，等于这个词废了。
@@ -162,8 +163,8 @@ def main() -> int:
         if real and ph:
             mapping.append((str(real), str(ph)))
     for k, v in (cfg.get("pack", {}).get("scrub") or {}).items():
-        # v 允许是空串（「喵」→删掉、「home\notes\」→删掉）：原来写 `if k and v` 会把空串目标整条丢掉，
-        # 结果包里留着该抹掉的词（2026-10-20 抓到，扫描命中 `喵`）
+        # v 允许是空串（「」→删掉、「」→删掉）：原来写 `if k and v` 会把空串目标整条丢掉，
+        # 结果包里留着该抹掉的词（2026-10-20 抓到，扫描命中 ``）
         if k and v is not None:
             mapping.append((str(k), str(v)))
     mapping.sort(key=lambda kv: len(kv[0]), reverse=True)
@@ -201,7 +202,7 @@ def main() -> int:
         for real, ph in mapping:
             if real:
                 text = text.replace(real, ph)
-        # json/yml 里路径是转义写的（C:\\Users\\user），单反斜杠正则匹配不到，等于漏用户名
+        # json/yml 里路径是转义写的（%USERPROFILE%
         WIN_HOME_ESC_RE = re.compile(r"(?i)[A-Z]:[\\\\/]+Users[\\\\/]+[^\\\\/\s\"']+")
         text = WIN_HOME_ESC_RE.sub("%USERPROFILE%", text)
         text = WIN_HOME_RE.sub("%USERPROFILE%", text)
@@ -233,7 +234,7 @@ def main() -> int:
     name = f"user-memory-{ver}-{stamp}"
     dist_root = root / "dist"
     dist_root.mkdir(parents=True, exist_ok=True)
-    # 2026-10-24 她定的口径：dist/ 只存版本压缩包，不留解压目录。
+    # 2026-10-24 用户定的口径：dist/ 只存版本压缩包，不留解压目录。
     # 默认在 dist/ 下的临时目录里组装、打完 zip 就删；
     # 要抽检内容用 --no-zip（出目录不压包）或 --keep-dir（压包 + 留目录）。
     tmp_parent = None
@@ -317,16 +318,50 @@ def main() -> int:
         entry.unlink()
         print("  剔掉 ENTRY.md（本机入口页，不进分发包）")
 
+    # 2026-10-24（用户指出）：包里发的 SKILL.md 一直是本机那份（name: user-memory、
+    # 通篇第一人称），通用版只躺在 framework-public/ 里没被用上——等于每次发版都把私人入口发出去。
+    public_skill = root / "framework-public" / "public-SKILL.md"
+    if public_skill.exists():
+        write(target / "SKILL.md", sanitize(public_skill.read_text(encoding="utf-8")))
+
+    # 门面文件里的作者署名与项目名不该被洗成占位符（2026-10-24 用户指出：
+    # README 标题一度变成「<记忆机器人> Memory」，作者行变成「by Firin Chan & <你的名字或 ID>」）。
+    owner_m = re.match(
+        r"https://raw\.githubusercontent\.com/([^/]+)/",
+        str((cfg.get("update") or {}).get("source") or ""),
+    )
+    owner = owner_m.group(1) if owner_m else ""
+
     for rel in ("SKILL.md", "README.md", "LICENSE", "setup.ps1", "templates/AGENTS.md",
                 "references/_模板.md", "config.example.json"):
         p = target / rel
         if p.exists():
-            write(p, sanitize(read(p)))
+            body = sanitize(read(p))
+            if rel in ("README.md", "SKILL.md") and owner:
+                body = body.replace("<你的名字或 ID>", owner)
+            write(p, body)
+
+    # 2026-10-24（用户指出）：发出去的包缺「开局必读的语气模块」——
+    # 那是别人装这个库的根本原因（要一个像人的说话方式），却是 drop 的。
+    pub89 = root / "framework-public" / "public-89-语气与交流.md"
+    if pub89.exists():
+        refs = target / "references"
+        if refs.is_dir():
+            # 源库的 89 是私人语气（drop 掉的），包内换成模板版
+            for old in refs.glob("89-*.md"):
+                old.unlink()
+            write(refs / "89-语气与交流.md", sanitize(pub89.read_text(encoding="utf-8")))
+            print("  语气模块：包里放模板版 references/89-语气与交流.md（开局必读）")
 
     # templates/AGENTS.md 是本机的规则版（硬塞层 + 个人规则），给别人必须换成空骨架版
     pub = root / "framework-public" / "public-AGENTS.md"
-    if pub.exists() and (target / "templates" / "AGENTS.md").exists():
-        write(target / "templates" / "AGENTS.md", sanitize(pub.read_text(encoding="utf-8")))
+    if pub.exists():
+        body = sanitize(pub.read_text(encoding="utf-8"))
+        if (target / "templates" / "AGENTS.md").exists():
+            write(target / "templates" / "AGENTS.md", body)
+        # 2026-10-24（用户定的）：根上再放一份，解压就看得见、直接复制到工作区当入口。
+        # 以前只在 templates/ 里有一份，用户根本不知道要复制哪个文件。
+        write(target / "AGENTS.md", body)
 
     tools_target = target / "tools"
     if tools_target.exists():
@@ -516,6 +551,19 @@ def main() -> int:
             except Exception:
                 pass
 
+    # 2026-10-24：包根 AGENTS.md 的 ROUTES 块原来是空的（「跑 routes.py 之后这里会出现」），
+    # 用户解压后第一眼读到的就是那份空表，得先跑一次才有人手填。这里打包时直接填好。
+    routes_py = target / "tools" / "routes.py"
+    if routes_py.exists():
+        import subprocess
+        try:
+            r = subprocess.run([sys.executable, str(routes_py)], cwd=str(target),
+                               capture_output=True, text=True, encoding="utf-8", errors="replace")
+            if r.returncode == 0:
+                print("   路由表已填入包根 AGENTS.md（ROUTES 块）")
+        except Exception as exc:
+            print(f"   ⚠ 路由表没填上：{type(exc).__name__}: {exc}")
+
     write(target / "VERSION", ver + "\n")
     manifest = "\n".join([
         f"打包版本 v{ver}",
@@ -524,6 +572,30 @@ def main() -> int:
         "不发：" + "、".join(sorted(set(d.split("-")[0] for d in dropped))),
     ] + ([persona_note] if persona_note else []))
     write(target / "PACKINFO.txt", manifest)
+
+    # 2026-10-24（用户的要求）：给分发包写一份骨架校验清单。
+    # 收包人没法一眼看出骨架被动没动过——清单让骨架能自证，而 skeleton_guard.py
+    # 只读不写，谁改完也不能「跑一次自动盖章」。要重新盖章只有重新打包这一条路。
+    skeleton_items: list[str] = []
+    for d in ("tools", "bin", "templates", "framework-public"):
+        base = target / d
+        if base.exists():
+            skeleton_items += [p.relative_to(target).as_posix()
+                               for p in sorted(base.rglob("*")) if p.is_file()]
+    for name in ("AGENTS.md", "SKILL.md", "setup.ps1", "VERSION", "config.example.json"):
+        if (target / name).exists():
+            skeleton_items.append(name)
+    for p in sorted((target / "references").glob("9*.md")):
+        skeleton_items.append(p.relative_to(target).as_posix())
+    skeleton_items = sorted(set(skeleton_items))
+    sha_lines: list[str] = [
+        "# 骨架清单：每行的 sha256 对得上才算没被动过。校验用 python tools/skeleton_guard.py",
+        "# 你的记忆模块（references/ 里除 9x 以外的文件）不在清单里，随便改。",
+    ]
+    for rel in skeleton_items:
+        sha_lines.append(f"{hashlib.sha256((target / rel).read_bytes()).hexdigest()}  {rel}")
+    write(target / "SKELETON.sha256", "\n".join(sha_lines) + "\n")
+    print(f"   骨架校验清单 SKELETON.sha256：{len(skeleton_items)} 项")
 
     if args.no_zip:
         print(f"✅ 生成目录 {target}")

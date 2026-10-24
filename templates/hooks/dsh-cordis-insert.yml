@@ -5,5 +5,5 @@
     - id: memory-recall-hooks
       name: "@deepseek-ai/dsh-hooks-codex"
       config:
-        configPath: C:/Users/%USERNAME%/.codex/hooks.json
+        configPath: %USERPROFILE%/.codex/hooks.json
         defaultTimeoutMs: 20000

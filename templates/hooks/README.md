@@ -1,6 +1,6 @@
 # memory-recall 钩子备份（另一台电脑用）
 
-> 2026-10-23 从本机（<你的笔记本>）拷出来的**三份宿主壳**。真正的引擎不在这里，是 `tools/recall.py`（已在 git 里），
+> 2026-10-23 从本机拷出来的**三份宿主壳**。真正的引擎不在这里，是 `tools/recall.py`（已在 git 里），
 > 壳只是「怎么把用户那句话喂给引擎」。
 
 ## 这三份是什么
@@ -31,7 +31,7 @@
 
 ## DSH 侧还要装两个包（不装 = 登记了也不跑，`fiberPhase: null`）
 
-`where pnpm` 在 <你的笔记本> 上找不到，用宿主自带的（11.28.5，不再支持 `--frozen-lockfile`，改叫 `trust-lockfile`）：
+`where pnpm` 在本机找不到，用宿主自带的（11.28.5，不再支持 `--frozen-lockfile`，改叫 `trust-lockfile`）：
 
 ```
 cd <home>\.dsh\profiles\desktop
