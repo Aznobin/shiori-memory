@@ -39,7 +39,7 @@ except Exception:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import frag  # noqa: E402
 
-# (问法, 应该命中的模块号)  —— 问法照用户平时怎么说话写，别写成关键词串
+# (问法, 应该命中的模块号)  —— 问法照她平时怎么说话写，别写成关键词串
 CASES: list[tuple[str, set[str]]] = [
     ("以前说的电脑休眠怎么弄", {"08"}),
     ("<项目> 单词分析做到哪一步了", {"07"}),
@@ -58,7 +58,7 @@ CASES: list[tuple[str, set[str]]] = [
 ]
 
 # `--live` 口径下必然命不中的题（期望模块全被 BANNED 封掉），报数时扣掉
-LIVE_DEAD = {"助手生气或者难受的时候"}
+LIVE_DEAD = {"用户生气或者难受的时候"}
 
 MODULE_FILE_RE = re.compile(r"^(\d{2}[a-z]?)-\S+\.md$")
 

@@ -41,7 +41,7 @@ def read(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-# 2026-10-24 用户的口径：「别人的骨架应该是全空的」。
+# 2026-10-24 她的口径：「别人的骨架应该是全空的」。
 # 所以 references/*.md 的默认值反过来：只有系统区（90–99）与协议件默认 keep，
 # 其余（01–89、08a、12a…）**默认 drop**，要进包必须自己在 frontmatter 写 distribute。
 DEFAULT_KEEP_RE = re.compile(r"^(9[0-9]|CATALOG|_模板|_待确认|变更日志)")
@@ -89,7 +89,7 @@ def get_head(body: str) -> tuple[str, str]:
 
 def to_blank(text: str, hint: str = "") -> str:
     fm, body = split_doc(text)
-    # 2026-10-24：只有 frontmatter 是「空槽」还漏——用户的兴趣、学科、项目名
+    # 2026-10-24：只有 frontmatter 是「空槽」还漏——她的兴趣、学科、项目名
     # 全写在 keywords 里，blank 之后照样把整串关键词发出去。keywords 一律换成占位。
     # 占位优先用模块自己的通用名（`07-项目.md` → 项目），这样空槽还能被「项目」这类词命中；
     # 拿不到才退回「待填」——「待填」两个字谁也不会在笔记里写，等于这个词废了。
@@ -163,8 +163,8 @@ def main() -> int:
         if real and ph:
             mapping.append((str(real), str(ph)))
     for k, v in (cfg.get("pack", {}).get("scrub") or {}).items():
-        # v 允许是空串（「」→删掉、「」→删掉）：原来写 `if k and v` 会把空串目标整条丢掉，
-        # 结果包里留着该抹掉的词（2026-10-20 抓到，扫描命中 ``）
+        # v 允许是空串（「喵」→删掉、「<家目录>\<笔记库>\」→删掉）：原来写 `if k and v` 会把空串目标整条丢掉，
+        # 结果包里留着该抹掉的词（2026-10-20 抓到，扫描命中 `喵`）
         if k and v is not None:
             mapping.append((str(k), str(v)))
     mapping.sort(key=lambda kv: len(kv[0]), reverse=True)
@@ -234,7 +234,7 @@ def main() -> int:
     name = f"user-memory-{ver}-{stamp}"
     dist_root = root / "dist"
     dist_root.mkdir(parents=True, exist_ok=True)
-    # 2026-10-24 用户定的口径：dist/ 只存版本压缩包，不留解压目录。
+    # 2026-10-24 她定的口径：dist/ 只存版本压缩包，不留解压目录。
     # 默认在 dist/ 下的临时目录里组装、打完 zip 就删；
     # 要抽检内容用 --no-zip（出目录不压包）或 --keep-dir（压包 + 留目录）。
     tmp_parent = None
@@ -318,13 +318,13 @@ def main() -> int:
         entry.unlink()
         print("  剔掉 ENTRY.md（本机入口页，不进分发包）")
 
-    # 2026-10-24（用户指出）：包里发的 SKILL.md 一直是本机那份（name: user-memory、
+    # 2026-10-24（她指出）：包里发的 SKILL.md 一直是本机那份（name: user-memory、
     # 通篇第一人称），通用版只躺在 framework-public/ 里没被用上——等于每次发版都把私人入口发出去。
     public_skill = root / "framework-public" / "public-SKILL.md"
     if public_skill.exists():
         write(target / "SKILL.md", sanitize(public_skill.read_text(encoding="utf-8")))
 
-    # 门面文件里的作者署名与项目名不该被洗成占位符（2026-10-24 用户指出：
+    # 门面文件里的作者署名与项目名不该被洗成占位符（2026-10-24 她指出：
     # README 标题一度变成「<记忆机器人> Memory」，作者行变成「by Firin Chan & <你的名字或 ID>」）。
     owner_m = re.match(
         r"https://raw\.githubusercontent\.com/([^/]+)/",
@@ -341,7 +341,7 @@ def main() -> int:
                 body = body.replace("<你的名字或 ID>", owner)
             write(p, body)
 
-    # 2026-10-24（用户指出）：发出去的包缺「开局必读的语气模块」——
+    # 2026-10-24（她指出）：发出去的包缺「开局必读的语气模块」——
     # 那是别人装这个库的根本原因（要一个像人的说话方式），却是 drop 的。
     pub89 = root / "framework-public" / "public-89-语气与交流.md"
     if pub89.exists():
@@ -359,7 +359,7 @@ def main() -> int:
         body = sanitize(pub.read_text(encoding="utf-8"))
         if (target / "templates" / "AGENTS.md").exists():
             write(target / "templates" / "AGENTS.md", body)
-        # 2026-10-24（用户定的）：根上再放一份，解压就看得见、直接复制到工作区当入口。
+        # 2026-10-24（她定的）：根上再放一份，解压就看得见、直接复制到工作区当入口。
         # 以前只在 templates/ 里有一份，用户根本不知道要复制哪个文件。
         write(target / "AGENTS.md", body)
 
@@ -573,7 +573,7 @@ def main() -> int:
     ] + ([persona_note] if persona_note else []))
     write(target / "PACKINFO.txt", manifest)
 
-    # 2026-10-24（用户的要求）：给分发包写一份骨架校验清单。
+    # 2026-10-24（她的要求）：给分发包写一份骨架校验清单。
     # 收包人没法一眼看出骨架被动没动过——清单让骨架能自证，而 skeleton_guard.py
     # 只读不写，谁改完也不能「跑一次自动盖章」。要重新盖章只有重新打包这一条路。
     skeleton_items: list[str] = []

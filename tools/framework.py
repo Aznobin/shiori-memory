@@ -24,9 +24,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 WORKTREE = ROOT / ".framework"
 BRANCH = "framework"
-# 发行版线：framework 的每次提交 --no-ff merge 进 Release，merge commit 署名用户
-# （2026-10-24 用户定的：merge 名字写用户的，改动写 Firin）。推远端时 Release 就是
-# skeleton 的 master（发行版主线，用户定的）；main 也一起推，兼容写死了 .../main 的老用户。
+# 发行版线：framework 的每次提交 --no-ff merge 进 Release，merge commit 署名她
+# （2026-10-24 她定的：merge 名字写她的，改动写 Firin）。推远端时 Release 就是
+# skeleton 的 master（发行版主线，她定的）；main 也一起推，兼容写死了 .../main 的老用户。
 RELEASE = "release"
 # 版本号单一来源：只读仓库根的 VERSION，产物里的 VERSION 也用这个值重写。
 # 以前这里硬编码过一次 "0.3.0"、VERSION 文件又是 "0.3.1"，同一次发布里两个版本号对不上。
@@ -37,7 +37,7 @@ KEEP_ROOT_FILES = [
     "SKILL.md", "README.md", "VERSION", "LICENSE",
     "config.example.json", "setup.ps1",
 ]
-# 不进产物的根文件：ENTRY.md 是本机入口页（私库名、用户的分类），别人拿到只需要 SKILL.md + AGENTS.md
+# 不进产物的根文件：ENTRY.md 是本机入口页（私库名、她的分类），别人拿到只需要 SKILL.md + AGENTS.md
 DROP_ROOT_FILES = ["ENTRY.md"]
 KEEP_DIRS = ["bin", "templates", "tools"]
 
@@ -90,12 +90,12 @@ WIN_HOME_RE = re.compile(r"(?i)\b[A-Z]:\\Users\\[^\\\s`'\"]+")
 # 配置里 scrub 之外，框架分支还要抹掉的私人标识
 EXTRA_SCRUB = {
     "<笔记库>": "<笔记库>",
-    "<笔记库父目录>": "<家目录>",
-    "每日总结": "日记",
-    "Obsidian": "笔记软件",
+    "<家目录>": "<家目录>",
+    "日记": "日记",
+    "笔记软件": "笔记软件",
     "<你的笔记本>": "<你的笔记本>",
     "%USERNAME%": "%USERNAME%",
-    "<本机用户名>": "%USERNAME%",
+    "%USERNAME%": "%USERNAME%",
     "<你的英文名>": "<你的英文名>",
     "<你的英文名>": "<你的英文名>",
     "<你的英文名>": "<你的英文名>",
@@ -103,7 +103,7 @@ EXTRA_SCRUB = {
     "<你的账号>": "<你的账号>",
     "<项目>": "<项目>",
     "<项目>": "<项目>",
-    "助手": "用户",
+    "用户": "用户",
 }
 
 CODE_SUFFIXES = {".py", ".ps1", ".psm1", ".cmd", ".sh", ".bat", ".json"}
@@ -120,14 +120,14 @@ CODE_KEEP = [
 # 代码文件专用的私人词替换：目标串必须 ASCII 安全或只落在 str 字面量上（注释/字符串），
 # 绝不产生中文占位符进 b"..."，否则 bytes 字面量当场 SyntaxError。
 CODE_SCRUB = {
-    "助手": "用户",
+    "用户": "用户",
     "<项目>": "项目",
     "<笔记库>": "notes",
-    "<笔记库父目录>": "home",
-    "Obsidian": "notes-app",
-    "每日总结": "daily",
+    "<家目录>": "home",
+    "笔记软件": "notes-app",
+    "日记": "daily",
     "<你的笔记本>": "laptop",
-    "<本机用户名>": "user",
+    "%USERNAME%": "user",
     "%USERNAME%": "user",
     "<你的英文名>": "yourname",
     "<你的英文名>": "yourname",
@@ -188,7 +188,7 @@ def load_mapping() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     名字类：这个人是谁（账号名、外号、项目名、口头禅）——
       只用在文档里；代码文件上会把 `b"..."` 里的账号名 换成中文占位符，
       带 bytes 字面量当场 SyntaxError，字符串字面量则变成坏 URL。
-    长的先替换（`%USERPROFILE%\\Documents\\...` 必须先于 `<本机用户名>`）。
+    长的先替换（`%USERPROFILE%\\Documents\\...` 必须先于 `%USERNAME%`）。
     """
     path_pairs: dict[str, str] = {}
     name_pairs: dict[str, str] = {}
@@ -210,15 +210,15 @@ def load_mapping() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
 
 
 QUOTE_RES = [
-    # 原话类：用户/用户/用户的 原话、「接着说「…」」、用户再钉「…」、日期后紧跟的引号句
-    (re.compile(r"(?:用户|用户)?的?原话[^「]{0,14}[「“][^」”]{0,400}[」”]"), "原话（已隐去）"),
+    # 原话类：她/用户/她的 原话、「接着说「…」」、她再钉「…」、日期后紧跟的引号句
+    (re.compile(r"(?:她|用户)?的?原话[^「]{0,14}[「“][^」”]{0,400}[」”]"), "原话（已隐去）"),
     (re.compile(r"原话（已隐去）[「“][^」”\n]{0,400}[」”]"), "原话（已隐去）"),
     (re.compile(r"接着说[「“][^」”\n]{0,400}[」”]"), "接着说（已隐去）"),
-    (re.compile(r"用户再钉[^「\n]{0,8}[「“][^」”\n]{0,400}[」”]"), "用户再钉（已隐去）"),
-    (re.compile(r"用户说[：:]?\s*[「“][^」”]{0,400}[」”]"), "用户说（已隐去）"),
+    (re.compile(r"她再钉[^「\n]{0,8}[「“][^」”\n]{0,400}[」”]"), "她再钉（已隐去）"),
+    (re.compile(r"她说[：:]?\s*[「“][^」”]{0,400}[」”]"), "她说（已隐去）"),
     (re.compile(r"（\d{4}-\d{2}-\d{2}\s*[「“][^」”\n]{0,400}[」”]）"), "（已隐去）"),
     # 私人口吻的长引号（带人称与语气词、且超过 12 字）：留结构不留原句
-    (re.compile(r"[「“](?=[^」”\n]{12,})(?=[^」”\n]*(?:你|我|诶|啦||呀|哦|嘛|呢|吗))[^」”\n]{0,400}[」”]"), "（已隐去）"),
+    (re.compile(r"[「“](?=[^」”\n]{12,})(?=[^」”\n]*(?:你|我|诶|啦|喵|呀|哦|嘛|呢|吗))[^」”\n]{0,400}[」”]"), "（已隐去）"),
 ]
 
 
@@ -247,14 +247,14 @@ def sanitize(text: str, mapping: tuple[list[tuple[str, str]], list[tuple[str, st
             text = text.replace(real, ph)
     text = WIN_HOME_RE.sub("%USERPROFILE%", text)
     # 产品名是公开的，先占位保护；其余库名是私人仓库名，换成中性说法
-    text = text.replace("用户本人", "用户本人").replace("用户的电脑", "用户的电脑")
+    text = text.replace("她本人", "用户本人").replace("她的电脑", "用户的电脑")
     protect = {"Shio" + "ri Memory": "\x00PM\x00", "shio" + "ri-memory": "\x00PR\x00"}
     for real, ph in protect.items():
         text = text.replace(real, ph)
     text = text.replace("Shio" + "ri.git", "memory.git").replace("Shio" + "ri", "记忆库")
     for real, ph in protect.items():
         text = text.replace(ph, real)
-    # 系统件里夹着的私人原话（用户的原句）不进框架分支：留结构，隐去内容
+    # 系统件里夹着的私人原话（她的原句）不进框架分支：留结构，隐去内容
     for _ in range(2):
         for pat, repl in QUOTE_RES:
             text = pat.sub(repl, text)
@@ -289,13 +289,13 @@ def collect() -> tuple[list[Path], list[str]]:
             # templates/hosts/ 是各台机器的私人 AGENTS 副本（含个人规则与原话），框架分支只留骨架
             if parts[:2] == ("templates", "hosts"):
                 continue
-            # templates/AGENTS.md 是用户的规则版；产物根的 AGENTS.md 由 plan() 用公开版注入
+            # templates/AGENTS.md 是她的规则版；产物根的 AGENTS.md 由 plan() 用公开版注入
             if parts[:2] == ("templates", "AGENTS.md"):
                 continue
             keep.append(p)
 
     # 2026-10-24：references 里的模块光靠文件名白名单不够——`91a-AGENTS骨架.md`
-    # 正文是用户的整套骨架实例（§8 硬塞层、用户的规则），只按 9x 前缀就整篇进了公开库（0.3.3 发漏）。
+    # 正文是她的整套骨架实例（§8 硬塞层、她的规则），只按 9x 前缀就整篇进了公开库（0.3.3 发漏）。
     # 所以再尊重一次 frontmatter 的 distribute：drop / blank 都不进骨架。
     for p in sorted((ROOT / "references").glob("*.md")):
         if p.name in KEEP_REF_EXACT or KEEP_REF_RE.match(p.name):
@@ -351,8 +351,8 @@ def repo_url() -> str:
 def release_author() -> tuple[str, str]:
     """发版 merge 的署名：从 memory.config.json 的 git.releaseName / git.releaseEmail 读。
 
-    2026-10-24 用户定的「merge 名字写我的，改动写你的 Firin」。名字不能硬编码进
-    framework.py——那份脚本本身会进分发包，硬编码等于把用户的 git 身份发给所有人。
+    2026-10-24 她定的「merge 名字写我的，改动写你的 Firin」。名字不能硬编码进
+    framework.py——那份脚本本身会进分发包，硬编码等于把她的 git 身份发给所有人。
     """
     try:
         data = json.loads((ROOT / "memory.config.json").read_text(encoding="utf-8-sig"))
@@ -409,8 +409,8 @@ def plan() -> tuple[list[tuple[str, bytes]], list[str], int]:
     out = [(rel, raw.replace(b"{{VERSION}}", FRAMEWORK_VERSION.encode("utf-8")))
            if rel == "SKILL.md" else (rel, raw) for rel, raw in out]
 
-    # 产物根的 AGENTS.md 用公开版：主库没有根 AGENTS.md（那是用户会话里的本地约定），
-    # templates/AGENTS.md 是用户那份带个人规则的，都不能给陌生人，这里注入通用空骨架。
+    # 产物根的 AGENTS.md 用公开版：主库没有根 AGENTS.md（那是她会话里的本地约定），
+    # templates/AGENTS.md 是她那份带个人规则的，都不能给陌生人，这里注入通用空骨架。
     if not any(rel == "AGENTS.md" for rel, _ in out):
         pub_agents = ROOT / "framework-public" / "public-AGENTS.md"
         if pub_agents.is_file():
@@ -469,14 +469,14 @@ def clean_worktree() -> None:
     git("worktree", "prune")
     if WORKTREE.exists():
         shutil.rmtree(WORKTREE)
-    # 2026-10-24 用户定的：发行版走 merge 线，framework / release 两个分支都留着，
+    # 2026-10-24 她定的：发行版走 merge 线，framework / release 两个分支都留着，
     # 不再每次 -D 重建。老 tag 会被新的 -f 覆盖，别的 tag 不动。
 
 
 def changelog_summary(limit: int = 200) -> str:
     """从主库 `references/变更日志.md` 最新一行的「改动」列取一句摘要。
 
-    为什么要有这个（2026-10-24 用户问「为什么不写变更，都长一个样」）：
+    为什么要有这个（2026-10-24 她问「为什么不写变更，都长一个样」）：
     原来 framework 分支每个提交的 message 都是同一个模板，光看 commit 列表
     完全看不出这次改了什么。版本号能对上，但「为什么改」对不上。
     变更日志里那行是人写的原因，直接搬进 commit body。
@@ -542,9 +542,9 @@ def build(push: bool, push_public: bool = False) -> int:
 
     git("add", "-A", cwd=WORKTREE)
     msg = f"framework: {FRAMEWORK_VERSION}（去个人化框架分支：协议件 + 工具链 + 模板）"
-    # 2026-10-24 用户定的：改动提交署名 Firin，merge（发版）署名用户。
+    # 2026-10-24 她定的：改动提交署名 Firin，merge（发版）署名她。
     # body 从变更日志最新一行搬过来——不然每个 framework 提交都长一个样，
-    # 从 commit 列表里看不出这次动了什么、为什么动（用户当场指出的）。
+    # 从 commit 列表里看不出这次动了什么、为什么动（她当场指出的）。
     _commit_args = ["-c", "user.name=Firin", "-c", "user.email=firin@local",
                     "commit", "-q", "-m", msg]
     _body = changelog_summary()
@@ -562,7 +562,7 @@ def build(push: bool, push_public: bool = False) -> int:
     print(f"✅ framework 分支已建：{len(files)} 文件 / {total / 1024:.0f} KB（提交 {sha}，tag {TAG}）")
 
     # 发行版 merge 线：framework 收每次发版的内容（署名 Firin），再 --no-ff merge 进 release
-    # （merge commit 署名用户）。git 图上一眼看出哪一版是哪次发的，也不再用 force 覆盖远端。
+    # （merge commit 署名她）。git 图上一眼看出哪一版是哪次发的，也不再用 force 覆盖远端。
     if git("rev-parse", "--verify", RELEASE, cwd=WORKTREE).returncode == 0:
         git("checkout", "-q", RELEASE, cwd=WORKTREE)
     else:
@@ -584,7 +584,7 @@ def build(push: bool, push_public: bool = False) -> int:
         # 之后每次都走快进（release 只追加 merge 提交）。
         # 发布库（shiori-memory）只留 master 一条：master = 发行版，
         # 日常改动的 main 留在本机私有库里（公开库不能放源码，references/ 有个人模块）。
-        # 2026-10-24 用户定的：「master 专门放发行库，日常修改进 main」。
+        # 2026-10-24 她定的：「master 专门放发行库，日常修改进 main」。
         r = git("push", "skeleton", f"{RELEASE}:master",
                 f"refs/tags/{TAG}:refs/tags/{TAG}",
                 "--force-with-lease", cwd=WORKTREE)

@@ -30,8 +30,8 @@ relates_to: ["93"]
   2. 命令里用双引号包路径（`"C:\...\python.exe" "C:\...\recall.py" hook`），`pwsh -Command` 把首个 `"` 当成字符串起始、报 `ParserError`，`exit 1` 被 hook 协议记成 `decision: pass` **静默吞掉**。正确写法是调用运算符：`& 'C:\...\python.exe' 'C:\...\recall.py' hook --host codex`。
 - 坑：`plugin_manager install_bundle` 对它会报 `{"code":"not-bundle"}`（不是 bundle），只能改 patch；patch 层**不进热重载**，必须重启 GUI 才加载（重启会掐掉当前会话，别在对话中途干）；改前先备份 `cordis.patch.yml.bak-memory-recall` / `.bak-sandbox`。
 - `hooks.json` 只在 `apply()` 启动时 `readFileSync` 一次，**改 hook 命令内容也要重启 GUI**，不是只改 patch 才要重启。
-- **怎么把内存里的旧快照换掉**：不用重启 GUI，`plugin_manager set_plugin include:memory-recall-hooks enabled:false` 再来一次 `true` 就会重新 `apply()` 并重读 `hooks.json`（2026-10-20 实测有效）。重启仍是最稳的办法，但不必再掐掉用户的会话。
-- **2026-10-22 又栽一次：hook 把自己装死**。用户按本机 `install_hooks.py` 的方法装完后 DSH 直接停摆，复盘是三条链叠在一起：
+- **怎么把内存里的旧快照换掉**：不用重启 GUI，`plugin_manager set_plugin include:memory-recall-hooks enabled:false` 再来一次 `true` 就会重新 `apply()` 并重读 `hooks.json`（2026-10-20 实测有效）。重启仍是最稳的办法，但不必再掐掉她的会话。
+- **2026-10-22 又栽一次：hook 把自己装死**。她按本机 `install_hooks.py` 的方法装完后 DSH 直接停摆，复盘是三条链叠在一起：
   1. **工具没跟着改**：`install_hooks.py` 的 `quote()` 仍在用双引号包 exe（`"C:\...\python.exe" "C:\...\recall.py"`），DSH 走 PowerShell 时内层引号被吞，`exit 1` + `ParserError`，hook 协议记 `decision: pass` 静默吞——§1 第 2 条病根原样复发。只改过 `hooks.json`、没改生成器，重跑一次安装就回到旧写法。
   2. **无会话 → 部署默认沙箱**：hook 不带 session，`runHook` 走 `ctx.shell` 取 `sandbox-policy` 的部署默认 `read-only`，Windows 上 `exit 3221225794`（`0xC0000142` DLL init failed）；必须补 `mode: danger-full-access`（§1 第 1 条）。
   3. **拿 disable 当热重载，把运行中的会话拆了**（直接死因）：上一轮为了重载 `include:sandbox-policy` 调了 `plugin_manager set_plugin ... enabled:false`。它是 shell/sandbox 的依赖 fiber，disable 当场触发 `turn/end reason: {"kind":"aborted","reason":{"kind":"disposed"}}`，会话被 dispose；同时 patch 落成 `disabled: true`，把第 2 条刚补的 `danger-full-access` 反掉——越修越死。**核心 fiber 不许用 disable 当重载手段**：要重载就重启 GUI，或只 toggle 非核心的 `include:memory-recall-hooks`。
@@ -76,7 +76,7 @@ relates_to: ["93"]
 - `durationMs` 几百毫秒：推不出「这条不是探针」——`hook/invoked` 里没有 `command` 字段，本来就没有归属信息。
 - `decision: pass`：全挂的轮次也是 `pass`（turn 2 是 `exit 3221225794`、turn 3 是 `exit 1` + ParserError），这个字段永远别当判据。
 - **`chars` 本身也证明不了交付**（2026-10-20 补的一刀）：`chars` 是 `len(card)`，写在 `%TEMP%` 一个普通文件里，只证明 `recall.py` 构造出了卡并写了 stdout，**证明不了宿主 adopt 了它**。手工 `recall.py hook --session <真 id>` 喂一句，所有字段看起来跟真跑一模一样。所以判据 4（日志里那张卡）才是唯一硬证据。
-- **同一天我在这个字段上栽过一次，值得留档**：我先查 `data.message.source` 得到 86 条全空，据此在对话里**公开「纠正」，说用户说的 `source.kind` 不存在**。真相是字段在 **`data.source`**，`message.source` 是另一层。教训：**结构没查清就否定别人的结论，比不查更糟**——不查只是不知道，乱纠正会把对的东西推倒。
+- **同一天我在这个字段上栽过一次，值得留档**：我先查 `data.message.source` 得到 86 条全空，据此在对话里**公开「纠正」，说她说的 `source.kind` 不存在**。真相是字段在 **`data.source`**，`message.source` 是另一层。教训：**结构没查清就否定别人的结论，比不查更糟**——不查只是不知道，乱纠正会把对的东西推倒。
 
 ## 6. 「通道通了」≠「记忆交付了」
 
@@ -104,7 +104,7 @@ relates_to: ["93"]
 
 ## 9. 「挂 hook 就会话崩溃」到底是谁干的（2026-10-22 查日志定案）
 
-用户原话：「为什么每次挂hook就会会话崩溃呢，有规避方法吗」。翻遍 `%USERPROFILE%\.dsh\sessions\` 16 个会话逐条查 `turn/end`：
+她原话：「为什么每次挂hook就会会话崩溃呢，有规避方法吗」。翻遍 `%USERPROFILE%\.dsh\sessions\` 16 个会话逐条查 `turn/end`：
 
 - **hook 命令失败本身不崩会话**：`session-0c06bffa` 里 11 次 `hook/invoked` 全败（9 次 `exitCode 3221225794` + 3 次 `exit 1`），它 turn 1～6 全是 `{kind:completed}`，一路聊到 turn 8。协议把失败记成 `decision: pass` **静默吞掉**，会话根本不知道。
 - **真崩只有 2 次，全是 `aborted: disposed`**，而且都是同一个原因：我拿 `plugin_manager set_plugin include:sandbox-policy enabled:false` 当热重载按钮，拆了 shell/sandbox 的依赖 fiber。见 §7 第 3 条。
@@ -116,12 +116,12 @@ relates_to: ["93"]
 1. **别为 `hooks.json` 重启**：`plugin_manager set_plugin include:memory-recall-hooks enabled:false` 再 `true`，只重跑这个非核心插件的 `apply()`，会重读 `hooks.json`，不碰会话。
 2. **`cordis.patch.yml` 一次写全**：patch 层没有热重载，新增 insert 条目必然要重启一次；所以 `sandbox-policy` 的 `danger-full-access`、`configPath`、`defaultTimeoutMs` 该配的一次配齐，别反复回去加。
 3. **核心 fiber 永远别 disable**：`sandbox-policy` / `shell` / `permission` 这类是别人的依赖，disable = 当场 disposed 且把 patch 写成 `disabled: true` 反过来咬你。
-4. 真要重启，挑用户不在说话的时候（`idle.py` 那套静默门同理）；会话历史落在 `session.v4.jsonl.zstd` 里，重启不等于内容没了。
+4. 真要重启，挑她不在说话的时候（`idle.py` 那套静默门同理）；会话历史落在 `session.v4.jsonl.zstd` 里，重启不等于内容没了。
 5. 改完先 `python tools\hookcheck.py` 看退出码，再谈别的事——`exit 1` 是通道不通，`exit 2` 是通了没交付，都是 hook 自己的事，与会话稳定性无关。
 
-## 10. 钩子壳的备份（2026-10-23，用户说「另一个电脑没装」）
+## 10. 钩子壳的备份（2026-10-23，她说「另一个电脑没装」）
 
-- **「自写钩子」指的是 memory-recall 这一套**：用户说的「就是hook」就是这条注入链，不是别的插件。核过 `~/.dsh/profiles/desktop/node_modules` 里 22 个 dsh 包，**全部**带 `repository` 指向 npm / GitHub，**没有本地自写插件包**；`cc-safety-net` 是第三方、`dsh-hooks-codex` / `dsh-hook-protocol` 是官方包，都不算自写。
+- **「自写钩子」指的是 memory-recall 这一套**：她说的「就是hook」就是这条注入链，不是别的插件。核过 `~/.dsh/profiles/desktop/node_modules` 里 22 个 dsh 包，**全部**带 `repository` 指向 npm / GitHub，**没有本地自写插件包**；`cc-safety-net` 是第三方、`dsh-hooks-codex` / `dsh-hook-protocol` 是官方包，都不算自写。
 - **壳已进 git**：三份宿主壳 + 一段 DSH 挂载 YAML 拷进记忆库 `templates/hooks/`，跟仓库走，另一台电脑拉下来就有——
   - `templates/hooks/codex-hooks.json`（原 `~/.codex/hooks.json`）
   - `templates/hooks/opencode-memory-recall.js` + `templates/hooks/opencode-memory-recall.config.json`（原 `~/.config/opencode/plugins/`）
