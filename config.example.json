@@ -1,0 +1,44 @@
+{
+  "_readme": "setup.ps1 会把这份复制成 memory.config.json 并按本机情况填路径；别直接改这个文件。",
+  "version": "0.1.0",
+  "git": {
+    "name": "memory-bot",
+    "email": "bot@local"
+  },
+  "paths": {
+    "home": "",
+    "workspace": "",
+    "codeRepo": "",
+    "algoRepo": "",
+    "javaVault": "",
+    "python": ""
+  },
+  "placeholders": {
+    "home": "%USERPROFILE%",
+    "workspace": "<笔记库>",
+    "codeRepo": "<代码仓库>",
+    "algoRepo": "<算法仓库>",
+    "javaVault": "<Java笔记库>"
+  },
+  "diary": {
+    "dir": "daily",
+    "prefix": "日记"
+  },
+  "update": {
+    "source": ""
+  },
+  "pack": {
+    "excludeDirs": [
+      "archive",
+      "__pycache__",
+      ".git",
+      "fragments"
+    ],
+    "excludeFiles": [
+      ".style_override.json",
+      "memdb.sqlite3"
+    ],
+    "scrub": {},
+    "regenerateCatalog": true
+  }
+}
