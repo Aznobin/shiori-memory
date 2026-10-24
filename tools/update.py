@@ -163,8 +163,10 @@ def check(force: bool = False, quiet: bool = False) -> dict:
     if fresh:
         remote = cache.get("remote", "")
         error = cache.get("error", "")
+        src_used = cache.get("src", "")
     else:
         remote, error = "", ""
+        src_used = ""
         base = raw_base()
         if not base:
             error = "未配置更新源（memory.config.json → update.source）"
@@ -174,6 +176,8 @@ def check(force: bool = False, quiet: bool = False) -> dict:
             # 再退回 raw（有约 5 分钟 CDN 缓存，可能读旧），最后才用 VERSION 兜底。
             try:
                 remote = api_manifest_version(base, TIMEOUT_CHECK)
+                if remote:
+                    src_used = "api"
             except (urllib.error.URLError, OSError, TimeoutError, ValueError) as exc:
                 error = f"{type(exc).__name__}: {exc}"
             if not remote:
@@ -182,6 +186,7 @@ def check(force: bool = False, quiet: bool = False) -> dict:
                         json.loads(fetch(f"{base}/manifest.json", TIMEOUT_CHECK)).get("version") or ""
                     )
                     error = ""
+                    src_used = "raw"
                 except (urllib.error.URLError, OSError, TimeoutError, ValueError) as exc:
                     error = error or f"{type(exc).__name__}: {exc}"
             if not remote:
@@ -190,6 +195,7 @@ def check(force: bool = False, quiet: bool = False) -> dict:
                         fetch(f"{base}/VERSION", TIMEOUT_CHECK).decode("utf-8", "replace").strip()
                     )
                     error = ""
+                    src_used = "VERSION"
                 except (urllib.error.URLError, OSError, TimeoutError) as exc:
                     error = error or f"{type(exc).__name__}: {exc}"
         cache.update(
@@ -198,6 +204,7 @@ def check(force: bool = False, quiet: bool = False) -> dict:
                 "remote": remote,
                 "error": error,
                 "local_at_check": local,
+                "src": src_used,
             }
         )
         save_cache(cache)
@@ -226,6 +233,11 @@ def check(force: bool = False, quiet: bool = False) -> dict:
         else:
             out(f"本地 {local} 比远端 {remote} 新——骨架库还没收到这个版本，发一次：")
             out("  python tools/framework.py --build --push --push-public")
+            # 2026-10-24：远程读到的版本比本地还旧，另一种可能是 CDN 缓存（shiori-old 实测：
+            # 包已是 0.3.23，check 还报 0.3.22）。走 raw 时把话说清楚，别让人以为包也旧。
+            if src_used != "api":
+                out(f"（这次读的是 {src_used or '缓存'}，raw 有约 5 分钟 CDN 缓存；"
+                    "真要确认以包内 VERSION 为准）")
     return result
 
 
