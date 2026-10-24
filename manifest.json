@@ -3,13 +3,13 @@
     "AGENTS.md": "3e4dd4367f81835f591a659579b87b70073719b2b7864a166816a1f48346aadd",
     "LICENSE": "76bed9a79e410bcee5b3f47f3929829e54a8e360b872d6fdc5acc0baae2e9ae2",
     "README.md": "e9051cd9d4b6ec04cb54db532816c08c989c84d0062e9efe379efdbd03bdcb31",
-    "SKILL.md": "9164316c2337002507160b2a9e13e804140276282ea77396fbec285bbef1e3fe",
-    "VERSION": "51fb92e1c4647db16e37521e5fda0aa6fc99735d4f8b9317a93b985262bd7f92",
+    "SKILL.md": "4350224b7e9b49258d53901e02a784e8072ff61710d5ebd9583a633cfddcbc97",
+    "VERSION": "e8eb716558f13c14a1dc90da09b8641b5ef2c5254c95d26ceededad44f7e439f",
     "bin/recall-hook.cmd": "8b65739b8389275959133d9ff7fe3ca99ae109eca56f436bc135d4f2f5eb37e3",
     "bin/recall-hook.sh": "a9eb77e339bb2ec2b0cdd39d1dc49aeecabf04dff84fdd52b47e4973baf16368",
     "config.example.json": "90bbde4c96c01b026c6820cfb43a5c7c605991d1efc2bdfe64bfd1a24892839e",
     "references/90-记忆检索与命中率.md": "e4153fd1b4b61c7b72c9cedc8a140ce17e35636277e77c7be3771edb0615ea1a",
-    "references/91-迁移与快速加载.md": "04b6371577f06b20d512c25d8fe3b0d8cc94806d767861c30b16fedadf985143",
+    "references/91-迁移与快速加载.md": "73a12b9cd9b8c3590e51f19792664c92ee96498e6677c87226e7a65336cda909",
     "references/92-打包与分发.md": "16cbadebe632b5f2edd79eecf51b4dfdc407be7ddbc2b0535ef02fea27d6739a",
     "references/92a-人格包分发.md": "becade377be963ccbbaef2649b543500098468317c9ccac79b51430bf2306146",
     "references/93-记忆自动注入.md": "1b0ca278284528e88217dedd327a49280192a4efff1bf446a429964fced318f7",
@@ -71,5 +71,5 @@
   },
   "min_python": "3.10",
   "repo": "https://github.com/Aznobin/shiori-memory",
-  "version": "0.3.21"
+  "version": "0.3.22"
 }
