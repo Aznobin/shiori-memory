@@ -3,8 +3,8 @@
     "AGENTS.md": "3e4dd4367f81835f591a659579b87b70073719b2b7864a166816a1f48346aadd",
     "LICENSE": "76bed9a79e410bcee5b3f47f3929829e54a8e360b872d6fdc5acc0baae2e9ae2",
     "README.md": "7f364728fba67dfa87955b1e3e4fab10a9ac15a85b49fb0c7b66623cb28a57f6",
-    "SKILL.md": "937e2ac10f8c07480c4f91a7b00bbba1dff9908df4d52aab971d81afacf5f70e",
-    "VERSION": "972a9c6a1771b41e90862a8f4dbc84dfb2aa9f5e6763333825037eff70694d64",
+    "SKILL.md": "e456a5f6120c31da4081f407efa02d2b96a2ffa319fef106f86aaf827db92d08",
+    "VERSION": "795be1e20b23e5d2010fb916ac29d05a3a0e0b61052e7f311c753032f5be68d5",
     "bin/recall-hook.cmd": "8b65739b8389275959133d9ff7fe3ca99ae109eca56f436bc135d4f2f5eb37e3",
     "bin/recall-hook.sh": "a9eb77e339bb2ec2b0cdd39d1dc49aeecabf04dff84fdd52b47e4973baf16368",
     "config.example.json": "90bbde4c96c01b026c6820cfb43a5c7c605991d1efc2bdfe64bfd1a24892839e",
@@ -43,7 +43,7 @@
     "tools/frag_bench.json": "fe5df653092d923edc7c00dbdf5f018fcd027917c44cb47c46206d67cd2329e3",
     "tools/frag_bench.py": "198a0ae5667ee7fbd3793794672e777ccd4b0c273f96807a4df290f14be602e8",
     "tools/frag_eval.py": "a8ee936820c98f4d8617f0dc5e20253e43fc9e3810c8210a2ca57008c26dfbc9",
-    "tools/framework.py": "a1c5d3d65a3259bac27d706e7b1fca61dd9bd1cd7f5b256032ac7ec199170508",
+    "tools/framework.py": "d301a9414d2b1c24e90b12ee674f6bee618cf74c9fa8904dc50c2109724e2df7",
     "tools/hookcheck.py": "3fd662f6c29b1d6249e96a15c07f0d263a2a3bcc7dd4643223fad407f42db137",
     "tools/import_notes.py": "f22a0eb87c49084281bea1461a035c8d44d0f73e4a8a72fcebdc7061f6b1cdf5",
     "tools/install_hooks.py": "e817354c513016e03fa6a81dd8eadc1e7a7ca4beffcc1283a0abcf56d4c4e1bf",
@@ -71,5 +71,5 @@
   },
   "min_python": "3.10",
   "repo": "https://github.com/Aznobin/shiori-memory",
-  "version": "0.3.28"
+  "version": "0.3.29"
 }

@@ -472,6 +472,34 @@ def clean_worktree() -> None:
     # 不再每次 -D 重建。老 tag 会被新的 -f 覆盖，别的 tag 不动。
 
 
+def changelog_summary(limit: int = 200) -> str:
+    """从主库 `references/变更日志.md` 最新一行的「改动」列取一句摘要。
+
+    为什么要有这个（2026-10-24 她问「为什么不写变更，都长一个样」）：
+    原来 framework 分支每个提交的 message 都是同一个模板，光看 commit 列表
+    完全看不出这次改了什么。版本号能对上，但「为什么改」对不上。
+    变更日志里那行是人写的原因，直接搬进 commit body。
+    """
+    p = ROOT / "references" / "变更日志.md"
+    try:
+        lines = p.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    # `变更日志` 是倒序表（最新在顶部），取第一条能解析的完整数据行。
+    # 判定只看第一列是不是 YYYY-MM-DD——早先我用「行里不含『日期』二字」过滤，
+    # 结果把正文里写了「日期」的行（退休标记那种）整个漏掉，读到的是上一条。
+    for ln in lines:
+        if not ln.startswith("|"):
+            continue
+        cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+        if len(cells) < 3 or not re.match(r"^\d{4}-\d{2}-\d{2}$", cells[0]):
+            continue
+        txt = cells[2]
+        if txt:
+            return txt[:limit] + ("…" if len(txt) > limit else "")
+    return ""
+
+
 def build(push: bool, push_public: bool = False) -> int:
     ensure_gitignore()
     files, dropped, total = plan()
@@ -514,8 +542,14 @@ def build(push: bool, push_public: bool = False) -> int:
     git("add", "-A", cwd=WORKTREE)
     msg = f"framework: {FRAMEWORK_VERSION}（去个人化框架分支：协议件 + 工具链 + 模板）"
     # 2026-10-24 她定的：改动提交署名 Firin，merge（发版）署名她。
-    r = git("-c", "user.name=Firin", "-c", "user.email=firin@local",
-            "commit", "-q", "-m", msg, cwd=WORKTREE)
+    # body 从变更日志最新一行搬过来——不然每个 framework 提交都长一个样，
+    # 从 commit 列表里看不出这次动了什么、为什么动（她当场指出的）。
+    _commit_args = ["-c", "user.name=Firin", "-c", "user.email=firin@local",
+                    "commit", "-q", "-m", msg]
+    _body = changelog_summary()
+    if _body:
+        _commit_args += ["-m", _body]
+    r = git(*_commit_args, cwd=WORKTREE)
     # 重复 --build 时内容没变，git 会报 nothing to commit。那不是错误：接着走 merge/push
     # 就行（2026-10-24 第一次改成 merge 线时第二次 --build 直接退出了，白等一轮）。
     if r.returncode != 0 and "nothing to commit" not in (r.stdout + r.stderr):
