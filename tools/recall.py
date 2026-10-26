@@ -152,8 +152,8 @@ SUBJECT_NOTE = (
     "（测试员 / 子智能体 / 导入的样本记录都不算）"
 )
 
-# 每轮都带的指针行（2026-10-20 她要求）：她的原话是「每次都读怎么没实现呢…
-# 提醒有记忆库这个东西的存在就行」。注入内容会漂，这一行不许漂。
+# 每轮都带的指针行（2026-10-20 她要求）
+# 注入内容会漂，这一行不许漂。
 # 路径**不许写死**：原来硬编码到某个具体用户目录，换机 / 打包都会把用户名带出去（2026-10-20 修）。
 ROOT_DIR = os.path.dirname(HERE)
 POINTER = (
@@ -758,7 +758,7 @@ def cmd_hook(a):
         save_state(st)
         return 0
 
-    # 工作区自带记忆库 → 不注本库（2026-10-24 她要求（原话已移除））
+    # 工作区自带记忆库 → 不注本库（2026-10-24 她：「他会读过去，哪怕设置成工作区内修改」）
     side, detail = workspace_library(cwd)
     if side in ("placeholder", "missing", "other"):
         return _skip("other-library", "%s:%s" % (side, detail[:60]))

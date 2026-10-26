@@ -121,7 +121,7 @@ relates_to: []
 
 ## 10. 钩子壳的备份（2026-10-23，她要求（原话已移除））
 
-- **「自写钩子」指的是 memory-recall 这一套**：她说的「就是hook」就是这条注入链，不是别的插件。核过 `~/.dsh/profiles/desktop/node_modules` 里 22 个 dsh 包，**全部**带 `repository` 指向 npm / GitHub，**没有本地自写插件包**；`cc-safety-net` 是第三方、`dsh-hooks-codex` / `dsh-hook-protocol` 是官方包，都不算自写。
+- **「自写钩子」指的是 memory-recall 这一套**：她要求（原话已移除）就是这条注入链，不是别的插件。核过 `~/.dsh/profiles/desktop/node_modules` 里 22 个 dsh 包，**全部**带 `repository` 指向 npm / GitHub，**没有本地自写插件包**；`cc-safety-net` 是第三方、`dsh-hooks-codex` / `dsh-hook-protocol` 是官方包，都不算自写。
 - **壳已进 git**：三份宿主壳 + 一段 DSH 挂载 YAML 拷进记忆库 `templates/hooks/`，跟仓库走，另一台电脑拉下来就有——
   - `templates/hooks/codex-hooks.json`（原 `~/.codex/hooks.json`）
   - `templates/hooks/opencode-memory-recall.js` + `templates/hooks/opencode-memory-recall.config.json`（原 `~/.config/opencode/plugins/`）
