@@ -33,9 +33,9 @@ from paths import module_files, resolve_module  # noqa: E402
 # 闸门放行、写入端拒收，等于墙上贴着「已支持」，照墙办事的人一定撞。
 # 2026-10-24 女儿审计第一条就是这个。闸门跟着收成真实支持的值。
 #
-# retire（2026-10-24 她定的：删是软删）：不是把行从 md 里抹掉，是在行尾挂
+# retire（2026-10-24 定的口径）：不是把行从 md 里抹掉，是在行尾挂
 # 「（已退休 YYYY-MM-DD：理由）」——正文永远留着，frag 切片时跳过，memdb 标 deleted=1。
-# 依据 `references/90` §4：「本库没有容量压力，删等于丢」；她对自己写库的纪律也是
+# 依据 `references/90` §4：本库没有容量压力（理由见 references/903）；她对自己写库的纪律也是
 # 「禁用 DELETE，一律 UPDATE status」。理由必填，跟 source 一个逻辑。
 OPS = ("add", "replace", "retire")
 

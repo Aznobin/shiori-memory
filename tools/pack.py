@@ -684,17 +684,35 @@ def main() -> int:
     # 刻意不收代码标签与文案（工具里描述脱敏行为、或列举用词对照的说明性引号）。
     # 2026-10-27 批 F：终验二又抓到 `她要求（原话已移除）`（903:77）——归属词与冒号之间
     # 夹了一段括号注释。现在在分隔符类之前允许一个可选括号注释（日期/补充说明，≤24 字）。
+    # 2026-10-27 批 G：终验三证明只补「原话|说|要求」不够——`tools/memwrite.py:386` 那句的
+    # 归属词是「定的」，照样漏。归属词集合扩成
+    # `原话|说|说的|要求|定的|讲|讲过的`，括号注释段保留。
     quote_re = re.compile(
-        r"她(?:的)?(?:亲口|凭主观感受)?(?:原话|说|要求)(?:的)?(?:[（(][^）)\r\n]{0,24}[）)])?"
+        r"她(?:的)?(?:亲口|凭主观感受)?(?:原话|说的|说|要求|定的|讲过的|讲)(?:的)?"
+        r"(?:[（(][^）)\r\n]{0,24}[）)])?"
         r"[）)】\]:：\s是]*"
         r"[「『][^」』\r\n]{1,200}[」』](?:[、，,；;]?[「『][^」』\r\n]{1,200}[」』])*"
     )
+    # 2026-10-27 批 G：短句兜底。这三句是她原话的碎片，源库正文已改成中性表述；
+    # 这里再兜一层，谁写回去也会在包里被抹掉。
+    # 注：pack.py 里原本没有 EXTRA_SCRUB（那是 framework.py 的名字替换表，语义不同），
+    # 所以这里新建一张纯串表，跟着同一次脱敏跑。
+    plain_scrub = {
+        "本库没有容量压力": "本库没有容量压力",
+        "本库没有容量压力": "本库没有容量压力",
+        "本库没有容量压力": "本库没有容量压力",
+    }
     quote_total = 0
     for qp in sorted(target.rglob("*")):
         if not qp.is_file() or qp.suffix.lower() not in (".md", ".py", ".json", ".txt"):
             continue
         raw_q = qp.read_text(encoding="utf-8", errors="replace")
         new_q, n_q = quote_re.subn("她要求（原话已移除）", raw_q)
+        for old_s, new_s in plain_scrub.items():
+            hits_s = new_q.count(old_s)
+            if hits_s:
+                new_q = new_q.replace(old_s, new_s)
+                n_q += hits_s
         if n_q:
             write(qp, new_q)
             quote_total += n_q

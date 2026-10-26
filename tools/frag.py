@@ -42,8 +42,8 @@ MAX_LINES = int(os.environ.get("FRAG_MAX_LINES", "4"))   # 单片段上限，可
 WHOLE_MODULES = {"801"}
 WHOLE_MAX_LINES = int(os.environ.get("FRAG_WHOLE_MAX_LINES", "40"))
 
-# 退休行（软删，2026-10-24 她定的「删是软删」）：正文留在 md 里，但不进片段、不被检索命中。
-# 依据 `references/90` §4「本库没有容量压力，删等于丢」。
+# 退休行（软删，2026-10-24 定的口径）：正文留在 md 里，但不进片段、不被检索命中。
+# 依据 `references/90` §4 本库没有容量压力（理由见 references/903）。
 RETIRED_RE = re.compile(r"（已退休 \d{4}-\d{2}-\d{2}：")
 MIN_CHARS = 20          # 太短的段落并入上一片段
 SENSITIVE_MODULES = {"701", "102", "211"}

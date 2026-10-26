@@ -574,7 +574,7 @@ def cmd_check(_args):
     if "origin" not in git("remote", check=False).stdout:
         print("GIT: 没绑远端，跳过比对")
         return
-    # 开局核对只给 3 s（她定的「等两三秒没反应就读本地」）：宁可报「没比成」，
+    # 开局核对只给 3 s（她要求（原话已移除））：宁可报「没比成」，
     # 也不该让新对话卡半分钟，更不该为了对上云端把会话拖住
     f = git_net("fetch", "origin", "main", timeout=FETCH_TIMEOUT, budget=FETCH_BUDGET)
     if f.returncode != 0:

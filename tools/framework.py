@@ -351,7 +351,7 @@ def repo_url() -> str:
 def release_author() -> tuple[str, str]:
     """发版 merge 的署名：从 memory.config.json 的 git.releaseName / git.releaseEmail 读。
 
-    2026-10-24 她定的「merge 名字写我的，改动写你的 Firin」。名字不能硬编码进
+    2026-10-24 她要求（原话已移除）。名字不能硬编码进
     framework.py——那份脚本本身会进分发包，硬编码等于把她的 git 身份发给所有人。
     """
     try:
@@ -584,7 +584,7 @@ def build(push: bool, push_public: bool = False) -> int:
         # 之后每次都走快进（release 只追加 merge 提交）。
         # 发布库（shiori-memory）只留 master 一条：master = 发行版，
         # 日常改动的 main 留在本机私有库里（公开库不能放源码，references/ 有个人模块）。
-        # 2026-10-24 她定的：「master 专门放发行库，日常修改进 main」。
+        # 2026-10-24 她要求（原话已移除）。
         r = git("push", "skeleton", f"{RELEASE}:master",
                 f"refs/tags/{TAG}:refs/tags/{TAG}",
                 "--force-with-lease", cwd=WORKTREE)

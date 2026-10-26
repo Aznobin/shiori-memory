@@ -383,9 +383,9 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
             )
             continue
 
-        # op=retire：软删（2026-10-24 她定的「删是软删，纯文本就算聊一年都没多少数据」）。
+        # op=retire：软删（2026-10-24 定的口径，理由见 references/903）。
         # 不抹掉正文，只在行尾挂退休标记；`frag` 切片段时跳过标记行，`memdb` 对应标 deleted。
-        # 依据 `903` §4「本库没有容量压力，删等于丢」+ 她对自己写库的纪律「禁用 DELETE，一律 UPDATE status」。
+        # 依据 `903` §4 本库没有容量压力（理由见 references/903）+ 她对自己写库的纪律「禁用 DELETE，一律 UPDATE status」。
         if op == "retire":
             old = (item.get("old") or "").strip()
             if not old:
