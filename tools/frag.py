@@ -31,6 +31,7 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import annotate  # noqa: E402
 import synonyms  # noqa: E402
 from paths import ROOT, module_paths, rel, resolve_module  # noqa: E402
 
@@ -49,6 +50,9 @@ RETIRED_RE = re.compile(r"（已退休 \d{4}-\d{2}-\d{2}：")
 # slug 收进片段 frontmatter / index.json，注释行换成空串（不许删行，locate_spans 靠下标对齐）。
 ANCHOR_RE = re.compile(r"^\s*<!--\s*A:([^>\s]+)\s*-->")
 COMMENT_RE = re.compile(r"<!--.*?-->")
+# 覆盖层 `<!-- S:tag=…;caption=…;kw=… -->`（2026-10-27）：写在被覆盖片段的首行上方，
+# 与自动标注合并、覆盖值优先；跟锚一样整行剥掉但**不删行**（locate_spans 靠下标对齐）。
+SPEC_RE = re.compile(r"<!--\s*S:[^>]*-->")
 MIN_CHARS = 20          # 太短的段落并入上一片段
 SENSITIVE_MODULES = {"701", "102", "211"}
 MAIN_MODULES = {"813", "811", "812", "201", "202", "301", "902", "809", "808", "903", "802", "915", "917", "918"}
@@ -64,6 +68,7 @@ DATE_CACHE = FRAG / ".dates.json"   # 行级日期缓存；build 只删 *.md，�
 RECENT_HALF_LIFE = 90.0             # 时间乘子的半衰期：90 天新鲜度掉一半
 RECENT_BASE, RECENT_W = 0.7, 0.3    # final = score * (0.7 + 0.3 * recency)，混合式不是纯乘
 DECAY_STATE = ROOT / "state" / "decay.json"   # 冷热状态的唯一事实源；build 从这里把 status/seen 带回来
+ANN_STATS: dict[str, int] = {}                # 三段短标注的统计（每次 build 清零）
 
 
 def _sliceable(p) -> bool:
@@ -119,21 +124,25 @@ def slug(text: str, limit: int = 10) -> str:
     return (cleaned or "片段")[:limit]
 
 
-def strip_comments(body: list[str]) -> tuple[list[str], list[tuple[int, str]]]:
-    """抽走所有 HTML 注释，返回 (新正文, [(行下标, 锚短名)])。
+def strip_comments(body: list[str]) -> tuple[list[str], list[tuple[int, str]], list[tuple[int, dict]]]:
+    """抽走所有 HTML 注释，返回 (新正文, [(行下标, 锚短名)], [(行下标, 覆盖字段)])。
 
-    锚行与普通注释行全部换成空串——不删行：`locate_spans` 靠下标对齐源文件行号，
+    锚行、`S:` 覆盖行与普通注释行全部换成空串——不删行：`locate_spans` 靠下标对齐源文件行号，
     删了行整篇 span 就对不上（跟 RETIRED_RE 一个道理）。
     """
     out: list[str] = []
     anchors: list[tuple[int, str]] = []
+    specs: list[tuple[int, dict]] = []
     for i, ln in enumerate(body):
         if "<!--" in ln:
             anchors.extend((i, name) for name in ANCHOR_RE.findall(ln))
+            override = annotate.parse_override(ln)
+            if override:
+                specs.append((i, override))
             out.append("")
         else:
             out.append(ln)
-    return out, anchors
+    return out, anchors, specs
 
 
 def anchor_owner(anchor_idx: int, body: list[str], spans: list[tuple[int | None, int | None]]) -> int | None:
@@ -395,6 +404,7 @@ def build() -> int:
     date_cache = _date_cache_load()
     carried = carry_decay_state()
     anchors_by_module: dict[str, list[str]] = {}
+    ANN_STATS.clear()
 
     files = sorted(p for p in module_paths() if _sliceable(p))
     for path in files:
@@ -406,7 +416,7 @@ def build() -> int:
         raw_body = ["" if RETIRED_RE.search(ln) else ln for ln in body]
         # HTML 注释（含 `<!-- A:slug -->` 锚）不进正文，但**切段仍按 raw_body 走**：
         # 掏空的注释行会被 split_paragraphs 当成段落分隔符，片段数就变了（2026-10-27 实测 991→986）。
-        stripped, anchors = strip_comments(raw_body)
+        stripped, anchors, specs = strip_comments(raw_body)
         if anchors:
             anchors_by_module[mod_id] = [name for _idx, name in anchors]
         # 末位为 0 的编号是骨架节点：只放结构，不进片段、不参与检索（2026-10-26 她定）
@@ -435,6 +445,16 @@ def build() -> int:
             owner = anchor_owner(anchor_idx, stripped, spans)
             if owner is not None:
                 owners.setdefault(owner, []).append(name)
+        # `S:` 覆盖层归到它下面的那个片段（跟锚同一套归属判定）
+        spec_owners: dict[int, dict] = {}
+        for spec_idx, spec in specs:
+            owner = anchor_owner(spec_idx, stripped, spans)
+            if owner is not None:
+                spec_owners.setdefault(owner, {}).update(spec)
+        mod_kw_list = [k.strip().strip('"') for k in str(meta.get("keywords", "")).splitlines() if k.strip()]
+        generic = annotate.generic_tokens(
+            [{"title": t or mod_title, "module_title": mod_title, "keywords": [], "module": mod_id}
+             for t, _lines in parts], mod_kw_list)
         mod_dir = FRAG / f"{mod_id}-{slug(mod_title, 8)}"
         mod_dir.mkdir(parents=True, exist_ok=True)
         entries: list[dict] = []
@@ -444,25 +464,49 @@ def build() -> int:
             frag_anchors = owners.get(seq - 1, [])
             upd = frag_updated(spans[seq - 1], line_dates, meta.get("updated", today))
             name = f"{mod_id}_{seq:03d}_{slug(title or mod_title)}.md"
+            # 三段短标注（2026-10-27 接进构建）：自动值算完后再合 `S:` 覆盖层，覆盖值优先
+            ttl = title or mod_title
+            ann_meta = {"frag": frag_id, "module": mod_id, "module_title": mod_title,
+                        "title": ttl, "keywords": []}
+            auto_cap, cap_needs_human = annotate.make_caption(text)
+            if not auto_cap:                       # 内容行都不可用时用片段标题兜底，别留空
+                auto_cap = annotate.fallback_caption(ttl)
+                cap_needs_human = True
+            auto_kws = annotate.make_keywords(ann_meta, text, generic, mod_kw_list, ANN_STATS)
+            merged = annotate.merge_override(
+                {"tag": annotate.tag_for(mod_id), "caption": auto_cap, "keywords": auto_kws},
+                spec_owners.get(seq - 1, {}))
+            tag = merged["tag"]
+            caption = merged["caption"]
+            kws = [str(k) for k in merged["keywords"]]
+            ANN_STATS["fragments"] = ANN_STATS.get("fragments", 0) + 1
+            if not caption:
+                ANN_STATS["caption_空"] = ANN_STATS.get("caption_空", 0) + 1
+            elif cap_needs_human:                   # 兜底/短句：留给人工，不算坏
+                ANN_STATS["caption_偏短"] = ANN_STATS.get("caption_偏短", 0) + 1
+            elif annotate.caption_problem(caption):
+                ANN_STATS["caption_硬坏"] = ANN_STATS.get("caption_硬坏", 0) + 1
+            if not kws:
+                ANN_STATS["keywords_空"] = ANN_STATS.get("keywords_空", 0) + 1
             head = [
                 "---",
                 f'frag: "{frag_id}"',
                 f'module: "{mod_id}"',
                 f'module_title: "{mod_title}"',
-                f'title: "{title or mod_title}"',
+                f'title: "{ttl}"',
                 f'weight: "{weight}"',
                 f'sensitive: "{str(sensitive).lower()}"',
                 f'distribute: "{distribute}"',
                 f'updated: "{upd}"',
-                "keywords: " + json.dumps(keywords_for(meta, title or mod_title, text), ensure_ascii=False),
+                "tag: " + json.dumps(tag, ensure_ascii=False),
+                "caption: " + json.dumps(caption, ensure_ascii=False),
+                "keywords: " + json.dumps(kws, ensure_ascii=False),
                 *(["anchors: " + json.dumps(frag_anchors, ensure_ascii=False)] if frag_anchors else []),
                 "---",
                 "",
             ]
             (mod_dir / name).write_text("\n".join(head) + text + "\n", encoding="utf-8")
             summary = re.sub(r"\s+", " ", text.lstrip("#-*> |").strip())[:70]
-            ttl = title or mod_title
-            kws = keywords_for(meta, ttl, text)
             entries.append({
                 "frag": frag_id,
                 "module": mod_id,
@@ -471,6 +515,8 @@ def build() -> int:
                 "weight": weight,
                 "sensitive": sensitive,
                 "updated": upd,
+                "tag": tag,
+                "caption": caption,
                 "part": part_of(ttl),
                 "seen": int((carried.get(frag_id) or {}).get("seen") or 0),
                 "status": (carried.get(frag_id) or {}).get("status") or "active",
@@ -502,7 +548,7 @@ def build() -> int:
     for path in sorted(p for p in module_paths() if p.resolve() not in sliced):
         meta, body = parse_front(path.read_text(encoding="utf-8"))
         mod_id = str(meta.get("id") or path.name.split("-")[0]).strip('"')
-        _stripped, anchors = strip_comments(
+        _stripped, anchors, _specs = strip_comments(
             ["" if RETIRED_RE.search(ln) else ln for ln in body])
         if anchors:
             anchors_by_module[mod_id] = [name for _idx, name in anchors]
@@ -513,6 +559,9 @@ def build() -> int:
     if anchors_by_module:
         (FRAG / "anchors.json").write_text(
             json.dumps(anchors_by_module, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
+    # 标注统计：dry-run/抽样 CLI（tools/private/frag_annotate.py）直接读这份，避免重复实现规则
+    (FRAG / "annotate-stats.json").write_text(
+        json.dumps(ANN_STATS, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
 
     # 人读的列表：INDEX.md 只放标题（便宜，一眼扫完），INDEX-full.md 带摘要
     def render(with_summary: bool) -> str:
@@ -536,6 +585,9 @@ def build() -> int:
     (FRAG / "INDEX-full.md").write_text(render(True), encoding="utf-8")
 
     print(f"切片完成：{len(files)} 个模块 → {len(index)} 个片段")
+    print(f"标注：tag/caption/keywords 已写入片段 frontmatter 与 index.json；"
+          f"caption 空 {ANN_STATS.get('caption_空', 0)}、硬坏 {ANN_STATS.get('caption_硬坏', 0)}、"
+          f"偏短待人工 {ANN_STATS.get('caption_偏短', 0)}、keywords 空 {ANN_STATS.get('keywords_空', 0)}")
     print(f"总表：{FRAG / 'INDEX.md'}")
     return 0
 

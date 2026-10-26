@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from datetime import datetime
@@ -412,6 +413,78 @@ def main(argv: list[str] | None = None) -> int:
     ]
     if bad_dates:
         issues.append("疑似编号迁移改坏日期（YYYY-NNN-DD / YYYY-DD-NNN）: " + ", ".join(bad_dates))
+
+    # 14) 片段三段短标注（2026-10-27 批 V 加）
+    #     ① 锚悬空 ② 锚短名跨模块重复 ③ tag 不在十区+aux 内 ④ `S:` 未知字段 → ❌；
+    #     ⑤ caption 超 30 字 → ⚠️。规则本体在公开工具 tools/annotate.py。
+    idx_path = root / "fragments" / "index.json"
+    ann_index: list[dict] = []
+    if idx_path.exists():
+        try:
+            ann_index = json.loads(idx_path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            issues.append(f"fragments/index.json 读不动: {exc}")
+    if ann_index:
+        sys.path.insert(0, str(root / "tools"))
+        dangling: list[str] = []
+        try:
+            import annotate  # noqa: PLC0415
+            import paths as _paths  # noqa: PLC0415
+        except Exception as exc:  # noqa: BLE001
+            warns.append(f"读不到标注模块，片段三段校验跳过: {exc}")
+        else:
+            valid_tags = {_paths.partition_tag(f"{lo:03d}") for lo, _hi, _name in _paths.PARTITIONS} | {"aux"}
+            bad_tags = sorted({str(e.get("tag")) for e in ann_index
+                               if str(e.get("tag")) not in valid_tags})
+            if bad_tags:
+                issues.append("片段 tag 不在十区+aux 内: " + ", ".join(bad_tags))
+            long_cap = [str(e.get("frag")) for e in ann_index
+                        if len(str(e.get("caption") or "")) > annotate.CAPTION_MAX]
+            if long_cap:
+                warns.append(f"caption 超过 {annotate.CAPTION_MAX} 字（{len(long_cap)} 条）: "
+                             + ", ".join(long_cap[:5]))
+            known_fields = {"tag", "caption", "kw"}
+            unknown_fields: list[str] = []
+            src_anchors: dict[str, set[str]] = {}
+            all_src_anchors: set[str] = set()
+            for mod_id, path in mods.items():
+                text = read(path)
+                got = set(re.findall(r"<!--\s*A:([A-Za-z0-9_-]+)\s*-->", text))
+                src_anchors[str(mod_id)] = got
+                all_src_anchors |= got
+                for m in re.finditer(r"<!--\s*S:([^>]*)-->", text):
+                    for piece in m.group(1).split(";"):
+                        if "=" in piece:
+                            key = piece.split("=", 1)[0].strip().lower()
+                            if key and key not in known_fields:
+                                unknown_fields.append(f"{path.relative_to(root)}:{key}")
+            if unknown_fields:
+                issues.append("`S:` 注释里出现未知字段: " + ", ".join(sorted(set(unknown_fields))))
+            dangling = [f"{e.get('frag')}#{slug}"
+                        for e in ann_index
+                        for slug in (e.get("anchors") or [])
+                        if str(slug) not in all_src_anchors]
+        anchors_path = root / "fragments" / "anchors.json"
+        if anchors_path.exists():
+            try:
+                extra = json.loads(anchors_path.read_text(encoding="utf-8"))
+            except Exception as exc:  # noqa: BLE001
+                issues.append(f"fragments/anchors.json 读不动: {exc}")
+            else:
+                for mod_id, slugs in extra.items():
+                    for slug in slugs or []:
+                        if str(slug) not in all_src_anchors:
+                            dangling.append(f"{mod_id}#{slug}")
+        if dangling:
+            issues.append("片段锚在源文件里找不到（悬空）: " + ", ".join(sorted(set(dangling))))
+        seen: dict[str, set[str]] = {}
+        for e in ann_index:
+            for slug in e.get("anchors") or []:
+                seen.setdefault(str(slug), set()).add(str(e.get("module")))
+        dup = {s: mod_ids for s, mod_ids in seen.items() if len(mod_ids) > 1}
+        if dup:
+            issues.append("锚短名跨模块重复: "
+                          + ", ".join(f"{s}({','.join(sorted(m))})" for s, m in sorted(dup.items())))
 
     print()
     print(f"模块 {len(module_files)} 个 · SKILL.md {skill_lines} 行")
