@@ -45,6 +45,10 @@ WHOLE_MAX_LINES = int(os.environ.get("FRAG_WHOLE_MAX_LINES", "40"))
 # 退休行（软删，2026-10-24 定的口径）：正文留在 md 里，但不进片段、不被检索命中。
 # 依据 `references/90` §4 本库没有容量压力（理由见 references/903）。
 RETIRED_RE = re.compile(r"（已退休 \d{4}-\d{2}-\d{2}：")
+# 锚注释 `<!-- A:slug -->`（2026-10-27）：只当定位坐标用，正文里一个字都不许留；
+# slug 收进片段 frontmatter / index.json，注释行换成空串（不许删行，locate_spans 靠下标对齐）。
+ANCHOR_RE = re.compile(r"^\s*<!--\s*A:([^>\s]+)\s*-->")
+COMMENT_RE = re.compile(r"<!--.*?-->")
 MIN_CHARS = 20          # 太短的段落并入上一片段
 SENSITIVE_MODULES = {"701", "102", "211"}
 MAIN_MODULES = {"813", "811", "812", "201", "202", "301", "902", "809", "808", "903", "802", "915", "917", "918"}
@@ -113,6 +117,36 @@ def parse_front(text: str) -> tuple[dict, list[str]]:
 def slug(text: str, limit: int = 10) -> str:
     cleaned = re.sub(r'[\\/:*?"<>|\s，。、；：！？（）()\[\]【】·]', "", text)
     return (cleaned or "片段")[:limit]
+
+
+def strip_comments(body: list[str]) -> tuple[list[str], list[tuple[int, str]]]:
+    """抽走所有 HTML 注释，返回 (新正文, [(行下标, 锚短名)])。
+
+    锚行与普通注释行全部换成空串——不删行：`locate_spans` 靠下标对齐源文件行号，
+    删了行整篇 span 就对不上（跟 RETIRED_RE 一个道理）。
+    """
+    out: list[str] = []
+    anchors: list[tuple[int, str]] = []
+    for i, ln in enumerate(body):
+        if "<!--" in ln:
+            anchors.extend((i, name) for name in ANCHOR_RE.findall(ln))
+            out.append("")
+        else:
+            out.append(ln)
+    return out, anchors
+
+
+def anchor_owner(anchor_idx: int, body: list[str], spans: list[tuple[int | None, int | None]]) -> int | None:
+    """锚归哪个片段：锚行本身已被换成空串，取它下面第一条正文所在片段。"""
+    j = anchor_idx
+    while j < len(body) and not body[j].strip():
+        j += 1
+    for i, (first, last) in enumerate(spans):
+        if first is None or last is None:
+            continue
+        if first <= j <= last:
+            return i
+    return None
 
 
 def split_paragraphs(body: list[str], whole: bool = False) -> list[tuple[str, list[str]]]:
@@ -360,12 +394,21 @@ def build() -> int:
     today = date.today().isoformat()
     date_cache = _date_cache_load()
     carried = carry_decay_state()
+    anchors_by_module: dict[str, list[str]] = {}
 
     files = sorted(p for p in module_paths() if _sliceable(p))
     for path in files:
         meta, body = parse_front(path.read_text(encoding="utf-8"))
         mod_id = str(meta.get("id") or path.name.split("-")[0])
         mod_id = mod_id.strip('"')
+        # 退休行（软删，2026-10-24）：正文留在 md 里可追溯，但不进片段、不被检索命中。
+        # 换成空串而不是删行，`locate_spans` 还要靠原始下标对齐行号。
+        raw_body = ["" if RETIRED_RE.search(ln) else ln for ln in body]
+        # HTML 注释（含 `<!-- A:slug -->` 锚）不进正文，但**切段仍按 raw_body 走**：
+        # 掏空的注释行会被 split_paragraphs 当成段落分隔符，片段数就变了（2026-10-27 实测 991→986）。
+        stripped, anchors = strip_comments(raw_body)
+        if anchors:
+            anchors_by_module[mod_id] = [name for _idx, name in anchors]
         # 末位为 0 的编号是骨架节点：只放结构，不进片段、不参与检索（2026-10-26 她定）
         if mod_id.isdigit() and mod_id.endswith("0"):
             continue
@@ -375,19 +418,30 @@ def build() -> int:
         distribute = meta.get("distribute", "keep")
         mod_kw = tokens_of(" ".join(
             k.strip() for k in meta.get("keywords", "").splitlines() if k.strip()))
-        # 退休行（软删，2026-10-24）：正文留在 md 里可追溯，但不进片段、不被检索命中。
-        # 换成空串而不是删行，`locate_spans` 还要靠原始下标对齐行号。
-        body = ["" if RETIRED_RE.search(ln) else ln for ln in body]
-        parts = split_paragraphs(body, whole=mod_id in WHOLE_MODULES)
+        parts_raw = split_paragraphs(raw_body, whole=mod_id in WHOLE_MODULES)
         rel = path.relative_to(ROOT).as_posix()
-        line_dates = cached_line_dates(rel, body, date_cache)
-        spans = locate_spans(parts, body)
+        line_dates = cached_line_dates(rel, raw_body, date_cache)
+        spans = locate_spans(parts_raw, raw_body)
+        # 片段正文用剥掉注释的文本；注释行整行不留在正文里（空行也不留）
+        parts: list[tuple[str, list[str]]] = []
+        for (title, chunk), (first, last) in zip(parts_raw, spans):
+            if first is None or last is None:
+                lines = [ln for ln in chunk if ln.strip()]
+            else:
+                lines = [stripped[i] for i in range(first, last + 1) if stripped[i].strip()]
+            parts.append((title, lines))
+        owners: dict[int, list[str]] = {}
+        for anchor_idx, name in anchors:
+            owner = anchor_owner(anchor_idx, stripped, spans)
+            if owner is not None:
+                owners.setdefault(owner, []).append(name)
         mod_dir = FRAG / f"{mod_id}-{slug(mod_title, 8)}"
         mod_dir.mkdir(parents=True, exist_ok=True)
         entries: list[dict] = []
         for seq, (title, lines) in enumerate(parts, start=1):
             text = "\n".join(lines).strip()
             frag_id = f"{mod_id}.{seq:03d}"
+            frag_anchors = owners.get(seq - 1, [])
             upd = frag_updated(spans[seq - 1], line_dates, meta.get("updated", today))
             name = f"{mod_id}_{seq:03d}_{slug(title or mod_title)}.md"
             head = [
@@ -401,6 +455,7 @@ def build() -> int:
                 f'distribute: "{distribute}"',
                 f'updated: "{upd}"',
                 "keywords: " + json.dumps(keywords_for(meta, title or mod_title, text), ensure_ascii=False),
+                *(["anchors: " + json.dumps(frag_anchors, ensure_ascii=False)] if frag_anchors else []),
                 "---",
                 "",
             ]
@@ -424,6 +479,7 @@ def build() -> int:
                 "lines": len(lines),
                 "chars": len(text),
                 "keywords": kws,
+                "anchors": frag_anchors,
                 "summary": summary,
                 "refs": sorted({r for r in re.findall(r"`(\d\d[a-z]?)-", text) if r != mod_id}),
                 "tokens": sorted(tokens_of(text + " " + " ".join(kws))),
@@ -441,8 +497,22 @@ def build() -> int:
                 entry["part"]["seq"] = no
         index.extend(entries)
 
+    # 不切片的模块（921 变更日志、927 索引这类）也在装锚：它们没有片段条目能挂锚，锚只进 anchors.json
+    sliced = {p.resolve() for p in files}
+    for path in sorted(p for p in module_paths() if p.resolve() not in sliced):
+        meta, body = parse_front(path.read_text(encoding="utf-8"))
+        mod_id = str(meta.get("id") or path.name.split("-")[0]).strip('"')
+        _stripped, anchors = strip_comments(
+            ["" if RETIRED_RE.search(ln) else ln for ln in body])
+        if anchors:
+            anchors_by_module[mod_id] = [name for _idx, name in anchors]
+
     _date_cache_save(date_cache)
     (FRAG / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=1), encoding="utf-8")
+    # 锚总表：模块 → 锚短名（含不切片的 921 这类模块，它们没有片段条目装锚）
+    if anchors_by_module:
+        (FRAG / "anchors.json").write_text(
+            json.dumps(anchors_by_module, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
 
     # 人读的列表：INDEX.md 只放标题（便宜，一眼扫完），INDEX-full.md 带摘要
     def render(with_summary: bool) -> str:
