@@ -4,17 +4,18 @@
 用法：
     python tools/write_gate.py payload.json     # 校验文件
     type payload.json | python tools/write_gate.py   # 校验 stdin
-    python tools/write_gate.py --selftest       # 自带 13 条样本自测（含批 B 两条规则）
+    python tools/write_gate.py --selftest       # 自带 15 条样本自测（含批 B、批 Q 规则）
 
 输入：JSON 数组，每项形如
     {"module": "813", "op": "add|merge|weight", "keys": ["…"], "body": "…",
      "ids": ["813.012", "813.014"], "date": "2026-10-23"}
 
-输出：{"ok": true, "normalized": [...]}
+输出：{"ok": true, "normalized": [...], "warnings": [...]}
   或  {"ok": false, "errors": [{"index": 2, "field": "body", "reason": "含代码围栏 ```"}]}
-退出码：通过 0 / 拒绝 1。
+退出码：通过 0 / 拒绝 1。WARN 不阻断，只进 `<home>/.agents/state/write_gate_warn.jsonl`。
 
-零依赖、只读：不写文件、不 import frag.py，模块白名单每次从 references/ 实际文件名现取。
+写文件只有一处：WARN 日志（批 Q 2026-10-27 起）。正文本身不写、不 import frag.py，
+模块白名单每次按 `memory/` + `references/` 实际文件名现取。
 """
 
 from __future__ import annotations
@@ -67,6 +68,24 @@ NON_WORD_RE = re.compile(
 )
 HAN_RE = re.compile(r"[\u4e00-\u9fff]")
 
+# 状态延伸句（2026-10-27 批 Q，落的是 `references/902-自维护.md` §9.1「三条整合」的第三半条）：
+# 一次观察被写成永久状态（「一直如此」「从来都」……）是最容易烂进库的假事实。
+# 口径只做 WARN：附近有日期锚点就放行，没有就记一笔，绝不阻断写入。
+STATUS_EXTEND_PHRASES = (
+    "一直如此",
+    "向来如此",
+    "从来都",
+    "一直都是",
+    "从来都是",
+    "永远都",
+    "永远不会",
+)
+STATUS_EXTEND_RE = re.compile("|".join(re.escape(p) for p in STATUS_EXTEND_PHRASES))
+DATE_ANCHOR_IN_TEXT_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+ANCHOR_WINDOW = 30
+WARN_LOG = Path.home() / ".agents" / "state" / "write_gate_warn.jsonl"
+LOG_WARNINGS = True
+
 
 def module_ids() -> set[str]:
     """现有模块白名单：从 `memory/` 与 `references/` 实际文件名取前缀，不写死。"""
@@ -85,6 +104,44 @@ def err(index: int, field: str, reason: str) -> dict:
     return {"index": index, "field": field, "reason": reason}
 
 
+def warn(index: int, field: str, reason: str) -> dict:
+    return {"index": index, "field": field, "level": "WARN", "reason": reason}
+
+
+def check_status_extend(text: str, index: int, field: str = "body") -> list[dict]:
+    """状态延伸句 + 30 字内无日期锚点 → WARN（批 Q）。只提醒，不拒收。"""
+    warns: list[dict] = []
+    for m in STATUS_EXTEND_RE.finditer(text):
+        lo = max(0, m.start() - ANCHOR_WINDOW)
+        hi = min(len(text), m.end() + ANCHOR_WINDOW)
+        if DATE_ANCHOR_IN_TEXT_RE.search(text[lo:hi]):
+            continue
+        warns.append(
+            warn(
+                index,
+                field,
+                f"状态延伸句「{m.group(0)}」附近 {ANCHOR_WINDOW} 字内没有日期锚点（只提醒，不阻断）",
+            )
+        )
+    return warns
+
+
+def log_warnings(warns: list[dict], path: Path | None = None) -> None:
+    """WARN 进日志：<home>/.agents/state/write_gate_warn.jsonl。失败绝不阻断写入。"""
+    if not warns or not LOG_WARNINGS:
+        return
+    target = Path(path) if path else WARN_LOG
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        stamp = date.today().isoformat()
+        with target.open("a", encoding="utf-8", newline="") as fh:
+            for w in warns:
+                row = {"at": stamp, **w}
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
 def has_word(text: str) -> bool:
     return bool(NON_WORD_RE.sub("", text))
 
@@ -99,10 +156,11 @@ def check_date(value, index: int, field: str) -> dict | None:
     return None
 
 
-def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[dict]]:
+def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[dict], list[dict]]:
     errors: list[dict] = []
+    warns: list[dict] = []
     if not isinstance(item, dict):
-        return None, [err(index, "", "条目不是 JSON 对象")]
+        return None, [err(index, "", "条目不是 JSON 对象")], warns
 
     module = item.get("module")
     if module is None or module == "":
@@ -180,6 +238,7 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
                         )
                     )
             norm_body = "\n".join(line.rstrip() for line in lines)
+            warns.extend(check_status_extend(norm_body, index))
 
     source = item.get("source")
     norm_source = ""
@@ -236,7 +295,7 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
                 errors.append(bad)
 
     if errors:
-        return None, errors
+        return None, errors, warns
 
     normalized = {
         "module": module.strip(),
@@ -272,7 +331,7 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
         else:
             normalized["reason"] = reason.strip()
 
-    return normalized, []
+    return normalized, [], warns
 
 
 def validate(payload) -> dict:
@@ -289,15 +348,21 @@ def validate(payload) -> dict:
         }
     normalized: list[dict] = []
     errors: list[dict] = []
+    warns: list[dict] = []
     for index, item in enumerate(payload):
-        norm, errs = validate_item(item, index, mods)
+        norm, errs, wns = validate_item(item, index, mods)
+        warns.extend(wns)
         if errs:
             errors.extend(errs)
         else:
             normalized.append(norm)
     if errors:
         return {"ok": False, "errors": errors}
-    return {"ok": True, "normalized": normalized}
+    log_warnings(warns)
+    result: dict = {"ok": True, "normalized": normalized}
+    if warns:
+        result["warnings"] = warns
+    return result
 
 
 GOOD = [
@@ -372,6 +437,9 @@ BAD = [
 
 
 def selftest() -> int:
+    global LOG_WARNINGS
+    prev_log = LOG_WARNINGS
+    LOG_WARNINGS = False  # 自测只算不写：别往真日志里塞样本
     # 2026-10-24：样本里的模块号（89/82/97/90/08）在打包版里大半被 drop 掉了，
     # 原来直接照抄，换个库自测就红一片。改成按当前 references/ 实测白名单落位：
     # 白名单里有这个号就用它，没有就顺序借一个真实存在的模块。
@@ -482,11 +550,48 @@ def selftest() -> int:
         )
         print("  ✗ 规则样本 2（低于出口阈）没被挡住")
 
+    # 批 Q 规则用例 ③：状态延伸句 + 附近无日期锚点 → 只记 WARN，不阻断写入。
+    total += 1
+    probe = {
+        "module": pick("903", 0),
+        "op": "add",
+        "keys": ["状态延伸句"],
+        "body": "她对甜食的好感一直都是这样。",
+    }
+    res = validate([probe])
+    got = res.get("warnings") or []
+    if res.get("ok") is True and len(got) == 1 and got[0].get("level") == "WARN":
+        ok_count += 1
+        print(f"  ✓ 规则样本 3（状态延伸句无锚点）放行 + 1 条 WARN：{got[0].get('reason')}")
+    else:
+        failures.append(f"规则样本 3 应放行并报 1 条 WARN：ok={res.get('ok')} warnings={got}")
+        print("  ✗ 规则样本 3（状态延伸句无锚点）没按预期报 WARN")
+
+    # 批 Q 规则用例 ④：同一类句子带日期锚点 → 不报 WARN。
+    total += 1
+    probe = {
+        "module": pick("903", 1),
+        "op": "add",
+        "keys": ["状态延伸句"],
+        "body": "2026-10-27 核：她对甜食的好感一直都是这样。",
+    }
+    res = validate([probe])
+    got = res.get("warnings") or []
+    if res.get("ok") is True and not got:
+        ok_count += 1
+        print("  ✓ 规则样本 4（带日期锚点）不报 WARN")
+    else:
+        failures.append(f"规则样本 4 不该报 WARN：ok={res.get('ok')} warnings={got}")
+        print("  ✗ 规则样本 4（带日期锚点）误报了 WARN")
+
+    LOG_WARNINGS = prev_log
     print(f"selftest {ok_count}/{total}")
     if failures:
         for line in failures:
             print("  ! " + line)
+        LOG_WARNINGS = prev_log
         return 1
+    LOG_WARNINGS = prev_log
     return 0
 
 

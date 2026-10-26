@@ -75,6 +75,35 @@ def boundary(old: str) -> str:
     return rf"(?<![0-9A-Za-z]){re.escape(old)}(?![0-9A-Za-z])"
 
 
+def quoted_ref_pat(olds: list[str]) -> re.Pattern[str]:
+    """反引号里的「模块号:行号」——批 Q 用；行号 1–4 位，别把裸时刻当引用。"""
+    pat = "|".join(boundary(o) for o in olds)
+    return re.compile(rf"`(?P<old>{pat}):(?P<ln>\d{{1,4}})`")
+
+
+def iter_quoted_files(root: Path) -> list[Path]:
+    """批 Q 的「只换反引号引用」扫描面：比 iter_files 多出 memory/，且不跳过 921。"""
+    files: list[Path] = []
+    self_path = Path(__file__).resolve()
+    for name in ROOT_FILES:
+        p = root / name
+        if p.is_file():
+            files.append(p)
+    for base in ("references", "memory", "tools", "templates", "framework-public"):
+        d = root / base
+        if not d.is_dir():
+            continue
+        for p in sorted(d.rglob("*")):
+            if not p.is_file() or p.suffix.lower() not in SCAN_SUFFIXES:
+                continue
+            if any(part in SKIP_DIRS for part in p.relative_to(root).parts):
+                continue
+            if p.resolve() == self_path:
+                continue  # 迁移脚本自己不动
+            files.append(p)
+    return files
+
+
 class Plan:
     def __init__(self, mapping: dict[str, str]) -> None:
         self.mapping = mapping
@@ -113,8 +142,28 @@ class Plan:
 
         return pat.sub(run, text)
 
+    def _quoted_ref_repl(self, m: re.Match[str]) -> str:
+        return "`" + self.mapping[m.group("old")] + ":" + m.group("ln") + "`"
+
+    def rewrite_quoted_refs(self, path: Path, text: str) -> str:
+        """批 Q：只换反引号里的「模块号:行号」，其它规则一律不跑（历史文件也能安全过）。"""
+        before = text
+        text = self._sub(text, quoted_ref_pat(self.olds), "module_line", self._quoted_ref_repl)
+        if text != before:
+            self.changed_files.add(path)
+        return text
+
     def rewrite_text(self, path: Path, text: str) -> str:
         before = text
+        # 0. 先把 ISO 日期挖空保护起来（2026-10-27 批 Q）：`2026-10-26` 里的 `10` 是映射表
+        #    里的模块号，会被规则 5b/6 当成引用改坏（批 M 手工修过 7 处）。跑完所有规则再还原。
+        dates: list[str] = []
+
+        def _stash_date(m: re.Match[str]) -> str:
+            dates.append(m.group(0))
+            return f"\x00D{len(dates) - 1}\x00"
+
+        text = re.sub(r"\d{4}-\d{2}-\d{2}", _stash_date, text)
         alt = "|".join(boundary(o) for o in self.olds)
         # 5. 路径写法：references/<旧>-标题.md 与不带前缀的 <旧>-标题.md / <旧>.md
         path_pat = re.compile(
@@ -205,6 +254,11 @@ class Plan:
                 "table_cell",
                 lambda m: m.group("pre") + self.mapping[m.group("old")] + m.group("post"),
             )
+        # 9. 反引号里的「两位模块号:行号」（2026-10-27 批 Q）：换成三位号，行号原样保留。
+        #    只认反引号包起来的，避免把正文里没被反引号包住的时刻当引用换掉。
+        text = self._sub(text, quoted_ref_pat(self.olds), "module_line", self._quoted_ref_repl)
+        # 还原被保护的 ISO 日期
+        text = re.sub(r"\x00D(\d+)\x00", lambda m: dates[int(m.group(1))], text)
         if text != before:
             self.changed_files.add(path)
         return text
@@ -276,6 +330,11 @@ class Plan:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="编号迁移（默认 dry-run）")
     ap.add_argument("--apply", action="store_true", help="真正落盘；默认只 dry-run")
+    ap.add_argument(
+        "--quoted-only",
+        action="store_true",
+        help="只换反引号里的「模块号:行号」（批 Q）；扫描面含 memory/ 与 921，其它规则不跑",
+    )
     ap.add_argument("--map", default=str(DEFAULT_MAP), help="映射表路径")
     ap.add_argument("--root", default=str(DEFAULT_ROOT), help="记忆库根目录")
     args = ap.parse_args(argv)
@@ -291,6 +350,20 @@ def main(argv: list[str] | None = None) -> int:
 
     mapping = load_mapping(map_path)
     plan = Plan(mapping)
+
+    if args.quoted_only:
+        for p in iter_quoted_files(root):
+            try:
+                text = p.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            new_text = plan.rewrite_quoted_refs(p, text)
+            if args.apply and new_text != text:
+                p.write_text(new_text, encoding="utf-8", newline="")
+        mode = "apply" if args.apply else "dry"
+        print(f"mode={mode} quoted-only map={len(mapping)} files={len(plan.changed_files)} replacements={plan.counts['module_line']}")
+        return 0
+
     plan.plan_renames(root, mapping)
 
     for p in iter_files(root):
