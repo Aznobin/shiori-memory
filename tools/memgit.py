@@ -281,11 +281,61 @@ def changed_files(root=None):
     return files
 
 
+GENERATED_PREFIXES = (
+    "fragments/",
+    "dist/",
+    "state/",
+    "archive/",
+    "meme-packs/",
+    "tools/memdb.sqlite3",
+)
+
+
+def source_files(files):
+    """去掉派生/生成物，只留值得写进提交说明的源文件。"""
+    return [f for f in files if not f.startswith(GENERATED_PREFIXES)]
+
+
+def one_line_summary(files):
+    """一句摘要：按改动落在哪一层给个诚实的说法，不猜内容。"""
+    if not files:
+        return "文件有改动"
+    tops = {f.split("/")[0] for f in files}
+    if tops <= {"tools", "templates"}:
+        return "工具脚本改动"
+    if tops <= {"memory", "references"}:
+        return "模块正文改动"
+    if "templates" in tops:
+        return "模板改动"
+    return "文件有改动"
+
+
 def fallback_msg(root, files):
     """变更日志里没有对应本次改动的行时用：文件名 + 一句摘要，不复用上一条说明。"""
-    names = [f.split("/")[-1] for f in files]
+    src = source_files(files) or files
+    names = [f.split("/")[-1] for f in src]
     shown = "、".join(names[:3]) + ("…" if len(names) > 3 else "")
-    return f"记忆更新 {shown}（{len(names)} 个文件；无对应变更日志行）"
+    return f"记忆：更新 {shown}（{one_line_summary(src)}；无对应变更日志行）"
+
+
+def match_log_row(files, log_text):
+    """按改动文件覆盖率挑最新一条对得上的变更日志行（≥60% 才算数），挑不到返回 None。"""
+    src = source_files(files) or files
+    if not src:
+        return None
+    for ln in log_text.splitlines():
+        if not ln.startswith("| 20"):
+            continue
+        cells = [c.strip() for c in ln.strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+        row_files = cells[1]
+        hit = sum(1 for f in src if f in row_files or f.split("/")[-1] in row_files)
+        if hit / len(src) >= 0.6:
+            body = cells[2].split("；")[0].split("。")[0].replace("`", "").replace("*", "")
+            if body:
+                return body
+    return None
 
 
 def default_msg(root=None):
@@ -295,18 +345,9 @@ def default_msg(root=None):
     try:
         log_path = pathlib.Path(root) / "references" / "921.md"
         log = log_path.read_text(encoding="utf-8")
-        rows = [ln for ln in log.splitlines() if ln.startswith("| 20")]
-        if rows:
-            cells = [c.strip() for c in rows[0].strip("|").split("|")]
-            if len(cells) >= 3:
-                row_files = cells[1]
-                matched = any(
-                    f in row_files or f.split("/")[-1] in row_files for f in files
-                )
-                if matched or not files:
-                    body = cells[2].split("；")[0].split("。")[0].replace("`", "").replace("*", "")
-                    if body:
-                        return "记忆：" + (body[:38] + "…" if len(body) > 38 else body)
+        body = match_log_row(files, log)
+        if body:
+            return "记忆：" + (body[:38] + "…" if len(body) > 38 else body)
     except Exception:
         pass
     if files:
@@ -315,7 +356,11 @@ def default_msg(root=None):
 
 
 def selftest():
-    """临时仓库里验说明兜底：只写 `922.md`（变更日志里没有它那一行）时，说明不能复用上一条。"""
+    """临时仓库里验说明来源：覆盖率达标的变更日志行才复用，否则走「文件名 + 一句摘要」。
+
+    样本：① 只写 922.md（日志没有它）→ 兜底；② 5 个文件只对上 1 个 → 兜底（回归守卫）；
+    ③ 3 个文件对上 2 个 → 用那行；④ 日志缺失 → 兜底。自测期间真库一行不许动。
+    """
     import shutil
     import tempfile
 
@@ -331,54 +376,108 @@ def selftest():
         else:
             print(f"  ✗ {name} {extra}")
 
-    with tempfile.TemporaryDirectory() as tmp:
-        root = pathlib.Path(tmp)
+    header = "| 日期 | 文件 | 改动 | 触发 |\n| --- | --- | --- | --- |\n"
+    real_run = subprocess.run
+    calls = []
+
+    def spy(cmd, *a, **kw):
+        calls.append(([str(c) for c in cmd] if isinstance(cmd, (list, tuple)) else [str(cmd)], kw.get("cwd")))
+        return real_run(cmd, *a, **kw)
+
+    def real_status():
+        if not (ROOT / ".git").exists():
+            return None
+        p = real_run(["git", "status", "--porcelain"], cwd=str(ROOT), capture_output=True, timeout=10)
+        return p.stdout
+
+    def mkrepo(base, name, log_text):
+        root = base / name
         refs = root / "references"
         refs.mkdir(parents=True, exist_ok=True)
-        (refs / "921.md").write_text(
-            "| 日期 | 文件 | 改动 | 触发 |\n"
-            "| --- | --- | --- | --- |\n"
-            "| 2026-10-26 | `memory/809-独立人格与立场.md` | 【上一条说明】不该被复用 | 自测 |\n",
-            encoding="utf-8",
-            newline="",
-        )
+        (refs / "921.md").write_text(log_text, encoding="utf-8", newline="")
         for cmd in (
             ["git", "init", "-q", "-b", "main"],
             ["git", "config", "--local", "user.name", "selftest"],
             ["git", "config", "--local", "user.email", "selftest@local"],
         ):
-            subprocess.run(cmd, cwd=str(root), capture_output=True, timeout=10)
-        (refs / "922.md").write_text("待确认内容\n", encoding="utf-8", newline="")
-        subprocess.run(["git", "add", "-A"], cwd=str(root), capture_output=True, timeout=10)
-        (refs / "922.md").write_text("待确认内容改了\n", encoding="utf-8", newline="")
+            real_run(cmd, cwd=str(root), capture_output=True, timeout=10)
+        real_run(["git", "add", "-A"], cwd=str(root), capture_output=True, timeout=10)
+        real_run(["git", "commit", "-q", "-m", "base"], cwd=str(root), capture_output=True, timeout=10)
+        return root
 
-        files = changed_files(root)
-        check("能取到改动文件名", any(f.endswith("922.md") for f in files), str(files))
-        msg = default_msg(root)
-        check(
-            "只写 922.md 时说明与内容一致（不复用上一条）",
-            "922.md" in msg and "上一条说明" not in msg,
-            msg,
-        )
-        check(
-            "兜底带文件数与「无对应变更日志行」",
-            "个文件" in msg and "无对应变更日志行" in msg,
-            msg,
-        )
+    def touch(root, rels):
+        """先把这批文件写进索引，再统一改一遍：保证它们全部处于「已改未暂存」。"""
+        if isinstance(rels, str):
+            rels = [rels]
+        for rel in rels:
+            p = root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("x\n", encoding="utf-8", newline="")
+        real_run(["git", "add", "-A"], cwd=str(root), capture_output=True, timeout=10)
+        for rel in rels:
+            (root / rel).write_text("y\n", encoding="utf-8", newline="")
 
-        (refs / "809-独立人格与立场.md").write_text("正文\n", encoding="utf-8", newline="")
-        subprocess.run(["git", "add", "-A"], cwd=str(root), capture_output=True, timeout=10)
-        matched = default_msg(root)
-        check("有对应变更日志行时仍用那行说明", "不该被复用" in matched, matched)
+    before = real_status()
+    subprocess.run = spy
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp)
 
-        (refs / "921.md").unlink()
-        subprocess.run(["git", "add", "-A"], cwd=str(root), capture_output=True, timeout=10)
-        no_log = default_msg(root)
-        check("变更日志缺失时也走文件名兜底", "922.md" in no_log, no_log)
+            # ① 只写 922.md，日志最新行是别的文件 → 兜底
+            root = mkrepo(
+                base, "a",
+                header + "| 2026-10-26 | `memory/809-独立人格与立场.md` | 【上一条说明】不该被复用 | 自测 |\n",
+            )
+            touch(root, "references/922.md")
+            files = changed_files(root)
+            check("能取到改动文件名", any(f.endswith("922.md") for f in files), str(files))
+            msg = default_msg(root)
+            check("只写 922.md 时说明与内容一致（不复用上一条）", "922.md" in msg and "上一条说明" not in msg, msg)
+            check("兜底带文件名与一句摘要", "无对应变更日志行" in msg and "模块正文改动" in msg, msg)
 
-        check("仓库没被自测改坏", (refs / "922.md").read_text(encoding="utf-8") == "待确认内容改了\n")
+            # ② 5 个文件改动，日志最新行只提到 1 个（覆盖率 20%）→ 必须兜底
+            root = mkrepo(
+                base, "b",
+                header + "| 2026-10-26 | `references/921.md` | 【只提一个文件】不该整条复用 | 自测 |\n",
+            )
+            touch(root, [f"references/{n}.md" for n in ("901", "902", "903", "904", "921")])
+            msg = default_msg(root)
+            check(
+                "覆盖率不足 60% 时不许复用那条说明（回归守卫）",
+                "不该整条复用" not in msg and "无对应变更日志行" in msg,
+                msg,
+            )
 
+            # ③ 3 个文件改动，日志最新行覆盖 2 个（66.7%）→ 用它
+            root = mkrepo(
+                base, "c",
+                header + "| 2026-10-26 | `references/902.md`、`memory/809-独立人格与立场.md` | 【对得上的说明】本次改动 | 自测 |\n",
+            )
+            touch(root, ["references/902.md", "memory/809-独立人格与立场.md", "references/903.md"])
+            msg = default_msg(root)
+            check("覆盖率达标时用那条说明", "对得上的说明" in msg, msg)
+            check("达标时说明不带兜底字样", "无对应变更日志行" not in msg, msg)
+
+            # ④ 变更日志缺失 → 兜底
+            root = mkrepo(base, "d", header)
+            touch(root, "references/922.md")
+            (root / "references" / "921.md").unlink()
+            msg = default_msg(root)
+            check("变更日志缺失时也走文件名兜底", "922.md" in msg, msg)
+    finally:
+        subprocess.run = real_run
     shutil.rmtree(tmp, ignore_errors=True)
+
+    root_resolved = str(ROOT.resolve())
+    bad = [
+        c for c, cwd in calls
+        if c and c[0] == "git" and cwd and str(pathlib.Path(cwd).resolve()) == root_resolved
+        and "status" not in c
+    ]
+    check("自测没对真实仓库跑任何 git 写命令", not bad, str(bad))
+    if before is not None:
+        check("自测前后真实仓库状态未变", real_status() == before)
+
     print(f"selftest {passes}/{total}")
     return 0 if passes == total else 1
 
