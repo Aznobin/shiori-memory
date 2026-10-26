@@ -32,7 +32,7 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parent
 ROOT = TOOLS.parent
 sys.path.insert(0, str(TOOLS))
-from paths import module_files  # noqa: E402
+from paths import DIARY_MODULE_ID, DIARY_NOISE_MODULE_IDS, ROUTE_SKIP_MODULE_IDS, module_files  # noqa: E402
 
 REF = ROOT / "references"
 IMPORT_DIR = ROOT / "state" / "imports"
@@ -43,10 +43,10 @@ MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_BODY_LINES = 6
 # 台账/清单类模块：内容是工具自己写进去的，不该当「你写的笔记」的路由目标（2026-10-24）
 # 00 是身份页（我是谁 / 怎么称呼 / 想要什么语气），只许人自己写，导入一律不进。
-ROUTE_SKIP = {"901", "801"}
+ROUTE_SKIP = ROUTE_SKIP_MODULE_IDS
 # 日记里出现的技术名词会被这些模块吸走（排障、巡检、架构、迁移），但它们不是「日记该去的地方」
-DIARY_NOISE = {"302", "902", "903", "904", "905", "906", "907", "908", "911", "912", "913", "915", "916", "917", "918"}
-DIARY_MODULE = "101"        # 日常记录：日记形态的内容默认归这里
+DIARY_NOISE = DIARY_NOISE_MODULE_IDS
+DIARY_MODULE = DIARY_MODULE_ID        # 日常记录：日记形态的内容默认归这里
 DIARY_CONF = 1.6           # 低于这个置信度，就不跟「更像的模块」抢
 MAX_LINE_CHARS = 120
 MIN_BLOCK_CHARS = 12

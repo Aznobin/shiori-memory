@@ -40,6 +40,7 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+from paths import BANNED_DOC_IDS, PERSONA_MODULE_ID, SELF_MODULE_IDS, USER_MODULE_IDS  # noqa: E402
 from routes import meta_module_ids  # noqa: E402
 
 # ---------------------------------------------------------------- 配置
@@ -164,7 +165,7 @@ MAINT_WORDS = ("检索", "打分", "片段", "hook", "索引", "frag", "memdb", 
 # 这些模块永远不自动注入。
 # 注意 memdb 的 docs.id 是裸编号（'701' / '102'），写成 '701-健康' 会恒不命中、
 # 让敏感模块静默漏进上下文（2026-10-21 审计 H2 实测：搜「睡眠」直接返回 [10:11]）。
-BANNED_DOCS = ("701", "102", "changelog")
+BANNED_DOCS = BANNED_DOC_IDS
 # 只保留真·隐私词。`体检` 2026-10-21 从这张表里撤掉：全库 25 行含「体检」，
 # **0 行在 `701-健康`**，绝大多数是「记忆库体检」这个机制词（`902` 6 行、`804`/`911`/`918` 各 2 行）。
 # 留着它的实测后果：「推送失败怎么办」本来 `902:5`「查出问题怎么办」命中 2 个词、
@@ -423,9 +424,9 @@ def retrieve(query, k=None):
             pass
         exempt = set()
         if side == "self":
-            exempt = {"803", "808", "809"}
+            exempt = SELF_MODULE_IDS
         elif side == "user":
-            exempt = {"001", "003", "002"}
+            exempt = USER_MODULE_IDS
         for module_id, mod_score in ranking[: max(k, MAX_N)]:
             hit = _best_line_for(con, module_id, toks, weights)
             if not hit:
@@ -457,8 +458,8 @@ def retrieve(query, k=None):
         # 精确比对编号：用子串会把 '701' 误伤到以 10 开头的别的 id
         if str(doc) in BANNED_DOCS:
             continue
-        # 89 系（人格模块）已经每轮常驻注入，这里跳过避免重复
-        if str(doc).startswith("813"):
+        # 813 系（语气模块）已经每轮常驻注入，这里跳过避免重复
+        if str(doc).startswith(PERSONA_MODULE_ID):
             continue
         if any(h in str(text) for h in BANNED_HINTS):
             continue
@@ -560,7 +561,7 @@ def random_old_row(st, exclude_fps):
         return None
     pool = []
     for doc, line, text in rows:
-        if str(doc) in BANNED_DOCS or str(doc).startswith("813"):
+        if str(doc) in BANNED_DOCS or str(doc).startswith(PERSONA_MODULE_ID):
             continue
         if any(h in str(text) for h in BANNED_HINTS):
             continue

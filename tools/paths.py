@@ -28,6 +28,30 @@ MODULE_RE = re.compile(r"^(\d{3}[a-z]?)(?:-.+)?\.md$")
 # 骨架区编号下界：>= 900 归 references/，其余归 memory/
 SKELETON_FLOOR = 900
 
+# ── 模块编号清单（2026-10-27 批 X）─────────────────────────────────────
+# 这些集合原先散在各工具里写死；两位→三位迁移（`9d8add2`）时就漏改过。
+# 编号一变，这里的每一项都得跟着核；工具统一 `from paths import ...`，别再抄字面量。
+# 注：`META_MODULE_IDS`（元规则模块）留在 `tools/routes.py`——它要拿 `ROUTES`
+# 表做过期断言，放这边会和 routes 互相 import。
+SENSITIVE_MODULE_IDS = frozenset({"701", "102", "211"})   # 隐私/健康/情绪：不进运维派生、不进注入
+SELF_MODULE_IDS = frozenset({"803", "808", "809"})        # 我：性格 / 账 / 立场
+USER_MODULE_IDS = frozenset({"001", "003", "002"})        # 她：背景 / 侧写 / 命名
+SUBJECT_MODULE_IDS = frozenset({"801", "001", "003"})     # 「关于人」的断言：强制来源覆盖范围
+WHOLE_MODULE_IDS = frozenset({"801"})                     # 必须整片到达、不切分
+MAIN_SCORE_MODULE_IDS = frozenset({
+    "813", "811", "812", "201", "202", "301", "902", "809", "808", "903", "802", "915", "917", "918",
+})
+DIARY_MODULE_ID = "101"                                   # 日记形态的内容默认归这里
+DIARY_NOISE_MODULE_IDS = frozenset({
+    "302", "902", "903", "904", "905", "906", "907", "908", "911", "912", "913", "915", "916", "917", "918",
+})
+ROUTE_SKIP_MODULE_IDS = frozenset({"901", "801"})         # 导入笔记时不作为路由目标
+STRUCTURAL_MODULE_IDS = frozenset({"921", "922", "923", "925", "927", "929"})   # 协议件：日志/收件箱/清单等，不算正式模块
+BANNED_DOC_IDS = frozenset({"701", "102", "changelog"})   # 不进检索：隐私 / 健康 / 变更日志
+PERSONA_MODULE_ID = "813"                                 # 语气与交流（非运维问句时降权）
+HARD_LAYER_MODULE_ID = "809"                              # 独立人格与立场：硬塞层正文来源
+MORNING_MODULE_IDS = ("813", "809", "808")                # 开场包：语气 / 立场 / 我自己的账
+
 # 编号分区（2026-10-26 改口径，三位数）：片段 tag / 路由 / 检索共用一张表
 PARTITIONS: list[tuple[int, int, str]] = [
     (0, 99, "身份背景"),

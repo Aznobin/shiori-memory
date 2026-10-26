@@ -33,7 +33,7 @@ except Exception:
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from paths import SKELETON_DIR  # noqa: E402
+from paths import SENSITIVE_MODULE_IDS, SKELETON_DIR  # noqa: E402
 
 INDEX = ROOT / "fragments" / "index.json"
 STATE = ROOT / "state" / "decay.json"
@@ -42,7 +42,7 @@ CANDIDATES = SKELETON_DIR / "924.md"
 HALF_LIFE_DAYS = 90.0      # 半衰期（Lead 2026-10-23 钉死：历史不满 30 天前不许调）
 COLD_BELOW = 0.5           # recency 低于这个值算冷
 ARCHIVE_QUIET_DAYS = 30    # 冷了之后多少天没命中就归档
-SENSITIVE_MODULES = {"701", "102", "211"}   # 合并候选不碰敏感模块，免得她的私事落进运维文档
+SENSITIVE_MODULES = SENSITIVE_MODULE_IDS   # 合并候选不碰敏感模块，免得她的私事落进运维文档
 WORDFUL = re.compile(r"[\u4e00-\u9fffA-Za-z]")   # 交集词里只留带字面的，纯编号 / 标点不算内容重叠
 
 SAME_MODULE_COMMON = 2     # 合并候选：同模块内 keys 交集至少这么多（模块级公共词先剔掉再数）

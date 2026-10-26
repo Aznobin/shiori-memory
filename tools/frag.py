@@ -33,14 +33,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import annotate  # noqa: E402
 import synonyms  # noqa: E402
-from paths import ROOT, module_paths, rel, resolve_module  # noqa: E402
+from paths import (  # noqa: E402
+    ROOT, module_paths, rel, resolve_module,
+    HARD_LAYER_MODULE_ID, MAIN_SCORE_MODULE_IDS, MORNING_MODULE_IDS,
+    SELF_MODULE_IDS, SENSITIVE_MODULE_IDS, USER_MODULE_IDS, WHOLE_MODULE_IDS,
+)
 
 FRAG = ROOT / "fragments"
 
 MAX_LINES = int(os.environ.get("FRAG_MAX_LINES", "4"))   # 单片段上限，可用环境变量覆盖做 A/B
 # 「一个整体」的模块：身份（00）必须整片到达。人设被切成 3+2 时，检索只捞得回半个人，
 # 而 00 一共就十几行——放大上限比让下一个人手工凑到 4 条更划算（2026-10-24 shiori-old 实测）。
-WHOLE_MODULES = {"801"}
+WHOLE_MODULES = WHOLE_MODULE_IDS
 WHOLE_MAX_LINES = int(os.environ.get("FRAG_WHOLE_MAX_LINES", "40"))
 
 # 退休行（软删，2026-10-24 定的口径）：正文留在 md 里，但不进片段、不被检索命中。
@@ -54,8 +58,8 @@ COMMENT_RE = re.compile(r"<!--.*?-->")
 # 与自动标注合并、覆盖值优先；跟锚一样整行剥掉但**不删行**（locate_spans 靠下标对齐）。
 SPEC_RE = re.compile(r"<!--\s*S:[^>]*-->")
 MIN_CHARS = 20          # 太短的段落并入上一片段
-SENSITIVE_MODULES = {"701", "102", "211"}
-MAIN_MODULES = {"813", "811", "812", "201", "202", "301", "902", "809", "808", "903", "802", "915", "917", "918"}
+SENSITIVE_MODULES = SENSITIVE_MODULE_IDS
+MAIN_MODULES = MAIN_SCORE_MODULE_IDS
 SKIP_FILES = {"927.md", "921.md"}
 # 2026-10-24：`stats` 报的「模块数」改成文件口径，与 catalog.py / memory_check.py 相等（23）；
 # 本文件只切其中能切的那部分（`921` 按日志处理、不切片），所以另报一个「有片段」的数。
@@ -732,8 +736,8 @@ def score(item: dict, q: set[str], idf: dict[str, float], avgdl: float | None = 
 # 词表再补也治不了，因为两边的词是**同一批**。唯一可靠的信号是**人称**：
 # 谁紧贴在主题词前面，问的就是谁。
 
-SELF_MODULES = {"803", "808", "809"}     # 我：性格 / 账 / 立场
-USER_MODULES = {"001", "003", "002"}     # 她：背景 / 侧写 / 命名
+SELF_MODULES = SELF_MODULE_IDS     # 我：性格 / 账 / 立场
+USER_MODULES = USER_MODULE_IDS     # 她：背景 / 侧写 / 命名
 
 SUBJECT_TOPICS = (
     "性格", "人格", "人设", "脾气", "侧写", "口味", "雷点", "原则", "立场",
@@ -1246,7 +1250,7 @@ def cmd_morning(args: argparse.Namespace) -> int:
     """开场包：人格三块（语气 / 立场 / 我自己的账）各一 + 全库随机几条。"""
     idx = load_index()
     out, used = [], set()
-    for mod in ("813", "809", "808"):
+    for mod in MORNING_MODULE_IDS:
         cands = [i for i in idx
                  if i["module"] == mod and i["weight"] == "main" and not i["sensitive"]]
         if not cands:
@@ -1271,9 +1275,9 @@ def cmd_morning(args: argparse.Namespace) -> int:
 
 def cmd_core(_: argparse.Namespace) -> int:
     """硬塞层：把 86 第七节「硬塞层清单」的条目整段打出来，直接贴进前言。"""
-    path = resolve_module("809")
+    path = resolve_module(HARD_LAYER_MODULE_ID)
     if path is None:
-        print("找不到模块 809（独立人格与立场），检查 memory/ 或 references/", file=sys.stderr)
+        print(f"找不到模块 {HARD_LAYER_MODULE_ID}（独立人格与立场），检查 memory/ 或 references/", file=sys.stderr)
         return 1
     text = path.read_text(encoding="utf-8")
     if "## 七、硬塞层清单" not in text:

@@ -28,7 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from paths import module_files, resolve_module  # noqa: E402
+from paths import SUBJECT_MODULE_IDS, module_files, resolve_module  # noqa: E402
 
 # merge / weight 是设计里预留的两档，但写入端（memwrite.py 的 apply）至今没接：
 # 闸门放行、写入端拒收，等于墙上贴着「已支持」，照墙办事的人一定撞。
@@ -52,7 +52,7 @@ SOURCES = ("user-original", "subagent", "test-transcript", "sample", "unknown")
 # 按「是不是关于人的断言」定强制范围，不按模块白名单凑数：
 #   00/01/31 是人相关模块；11 也要，但它走行尾标（样本混在真日记里，模块级盖不住）。
 #   90–99 那批机制件豁免——它们的来源是代码和文档，不是人。
-SUBJECT_MODULES = ("801", "001", "003")
+SUBJECT_MODULES = SUBJECT_MODULE_IDS
 
 MAX_KEY_CHARS = 12
 MAX_BODY_LINES = 6
