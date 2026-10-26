@@ -211,6 +211,28 @@ def _selftest() -> int:
             "疑似编号迁移改坏日期" not in buf3.getvalue() and rc3 == rc,
         )
 
+        # 行尾锚检查（2026-10-27 批 Z）：行首锚不报；行尾锚必须报 ❌。
+        anchor_src = refs / "003-带引号.md"
+        anchor_clean = anchor_src.read_text(encoding="utf-8")
+        anchor_src.write_text(
+            anchor_clean.rstrip("\n") + "\n<!-- A:ok-anchor -->\n正文行 <!-- A:tail-anchor -->\n",
+            encoding="utf-8",
+            newline="",
+        )
+        buf4 = io.StringIO()
+        with contextlib.redirect_stdout(buf4):
+            rc4 = main(["--root", str(root)])
+        out4 = buf4.getvalue()
+        check("行首锚不报", "ok-anchor" not in out4)
+        check(
+            "行尾锚报硬错（带文件名+行号）",
+            "锚必须写在行首，行尾锚会被忽略" in out4
+            and "003-带引号.md:" in out4
+            and rc4 == 1,
+            out4.strip().splitlines()[-2:],
+        )
+        anchor_src.write_text(anchor_clean, encoding="utf-8", newline="")
+
     print(f"selftest {passes}/{total}")
     return 0 if passes == total else 1
 
@@ -485,6 +507,21 @@ def main(argv: list[str] | None = None) -> int:
         if dup:
             issues.append("锚短名跨模块重复: "
                           + ", ".join(f"{s}({','.join(sorted(m))})" for s, m in sorted(dup.items())))
+
+    # 14b) 行尾锚（2026-10-27 批 Z 加）：`<!-- A:slug -->` 只在行首才生效，
+    #      写在行尾会被 frag.py 静默忽略——以后手滑写错位置锚就丢了，必须报硬错。
+    #      只扫 memory/ 与 references/（mods 就是这两处的模块文件）。
+    tail_anchors: list[str] = []
+    for _mod_id, path in mods.items():
+        try:
+            text = read(path)
+        except Exception:  # noqa: BLE001
+            continue
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            if "<!-- A:" in line and not re.match(r"^\s*<!--\s*A:", line):
+                tail_anchors.append(f"{path.relative_to(root)}:{line_no}")
+    if tail_anchors:
+        issues.append("锚必须写在行首，行尾锚会被忽略: " + ", ".join(tail_anchors))
 
     print()
     print(f"模块 {len(module_files)} 个 · SKILL.md {skill_lines} 行")
