@@ -130,11 +130,19 @@ def slug(text: str, limit: int = 10) -> str:
     return (cleaned or "片段")[:limit]
 
 
-def strip_comments(body: list[str]) -> tuple[list[str], list[tuple[int, str]], list[tuple[int, dict]]]:
-    """抽走所有 HTML 注释，返回 (新正文, [(行下标, 锚短名)], [(行下标, 覆盖字段)])。
+COMMENT_SPAN_RE = re.compile(r"<!--.*?-->")
 
-    锚行、`S:` 覆盖行与普通注释行全部换成空串——不删行：`locate_spans` 靠下标对齐源文件行号，
-    删了行整篇 span 就对不上（跟 RETIRED_RE 一个道理）。
+
+def strip_comment_text(line: str) -> str:
+    """删掉行内的 HTML 注释、保留同一行的正文（整行注释的会拿到空串）。"""
+    return COMMENT_SPAN_RE.sub("", line).rstrip()
+
+
+def strip_comments(body: list[str]) -> tuple[list[str], list[tuple[int, str]], list[tuple[int, dict]]]:
+    """抽走 HTML 注释，返回 (新正文, [(行下标, 锚短名)], [(行下标, 覆盖字段)])。
+
+    整行注释换成空串（不删行：`locate_spans` 靠下标对齐源文件行号，删了行整篇 span 就对不上，
+    跟 RETIRED_RE 一个道理）；行内注释（`正文 <!-- S:… -->`）只删注释本身、保留同行正文。
     """
     out: list[str] = []
     anchors: list[tuple[int, str]] = []
@@ -145,17 +153,19 @@ def strip_comments(body: list[str]) -> tuple[list[str], list[tuple[int, str]], l
             override = annotate.parse_override(ln)
             if override:
                 specs.append((i, override))
-            out.append("")
+            # 行内注释（`正文 <!-- S:… -->`）保留同行正文；整行注释变空串（下标不退位）
+            out.append(strip_comment_text(ln))
         else:
             out.append(ln)
     return out, anchors, specs
 
 
 def anchor_owner(anchor_idx: int, body: list[str], spans: list[tuple[int | None, int | None]]) -> int | None:
-    """锚归哪个片段：锚行本身已被换成空串，取它下面第一条正文所在片段。"""
+    """锚归哪个片段：行内注释归它自己那一行，整行注释归它下面第一条正文所在片段。"""
     j = anchor_idx
-    while j < len(body) and not body[j].strip():
-        j += 1
+    if not body[j].strip():
+        while j < len(body) and not body[j].strip():
+            j += 1
     for i, (first, last) in enumerate(spans):
         if first is None or last is None:
             continue
@@ -179,7 +189,7 @@ def split_paragraphs(body: list[str], whole: bool = False) -> list[tuple[str, li
         keep = [x for x in buf if x.strip()]
         if keep:
             title = heading
-            first = keep[0].strip()
+            first = strip_comment_text(keep[0]).strip()
             if first.startswith("#"):
                 title = first.lstrip("#").strip()
             blocks.append((title, keep))
@@ -194,7 +204,7 @@ def split_paragraphs(body: list[str], whole: bool = False) -> list[tuple[str, li
         if line.startswith("#"):
             if not whole:
                 flush()
-                heading = line.lstrip("#").strip()
+                heading = strip_comment_text(line).lstrip("#").strip()
             buf.append(line)
             continue
         buf.append(line)
@@ -422,8 +432,8 @@ def build() -> int:
         # 退休行（软删，2026-10-24）：正文留在 md 里可追溯，但不进片段、不被检索命中。
         # 换成空串而不是删行，`locate_spans` 还要靠原始下标对齐行号。
         raw_body = ["" if RETIRED_RE.search(ln) else ln for ln in body]
-        # HTML 注释（含 `<!-- A:slug -->` 锚）不进正文，但**切段仍按 raw_body 走**：
-        # 掏空的注释行会被 split_paragraphs 当成段落分隔符，片段数就变了（2026-10-27 实测 991→986）。
+        # HTML 注释（`<!-- A:slug -->` 锚、`<!-- S:… -->` 覆盖层）不进正文，但**切段仍按 raw_body 走**：
+        # 行内注释改行成空行会让片段数变（2026-10-27 实测 991→987）；标题与正文另行剥注释。
         stripped, anchors, specs = strip_comments(raw_body)
         if anchors:
             anchors_by_module[mod_id] = [name for _idx, name in anchors]

@@ -53,7 +53,7 @@ relates_to: []
 - **条数判据必须乘上 point 数**：`hooks.json` 只登记 1 条 `UserPromptSubmit` 时，`len(rows) % 1 == 0` 恒真 —— 上一版等于没查（验收时发现）。改成按 point 分组核对。
 - **归属问题无解**：`hook/invoked` 事件里没有 `command` 字段（`dsh-hooks-codex/lib/index.js:149-155` 的 `appendHookInvoked` 只写 `turn/point/dialect/handlerId/matcher`），工具没法区分哪条 `0` 是探针、哪条是 recall。所以探针只能删掉，别留着当"辅助验证"——它只会污染判据。
 
-## 3. 判据写法踩过的五次坑（`hookcheck.py` 里逐版留了注释）
+## 3. 判据写法踩过的五次坑（`hookcheck.py` 里逐版留了注释） <!-- S:caption=判据写法踩过的五次坑 -->
 
 - v1 用整个 turn 判 → turn 横跨改动前后，误杀。
 - v2 用「最后 n 条」判 → 从两条命令改成一条时那批里还夹着旧命令的 `1`，通了却报失败。
@@ -108,7 +108,7 @@ relates_to: []
 
 - **hook 命令失败本身不崩会话**：`session-0c06bffa` 里 11 次 `hook/invoked` 全败（9 次 `exitCode 3221225794` + 3 次 `exit 1`），它 turn 1～6 全是 `{kind:completed}`，一路聊到 turn 8。协议把失败记成 `decision: pass` **静默吞掉**，会话根本不知道。
 - **真崩只有 2 次，全是 `aborted: disposed`**，而且都是同一个原因：我拿 `plugin_manager set_plugin include:sandbox-policy enabled:false` 当热重载按钮，拆了 shell/sandbox 的依赖 fiber。见 §7 第 3 条。
-- **剩下那些「崩了」是重启**：`cordis.patch.yml` 和 `hooks.json` 都只在启动/`apply()` 时读，装或改就得重启 GUI，重启就掐掉正在聊的那个对话。这是设计，不是 hook 的 bug。
+- **剩下那些「崩了」是重启**：`cordis.patch.yml` 和 `hooks.json` 都只在启动/`apply()` 时读，装或改就得重启 GUI，重启就掐掉正在聊的那个对话。这是设计，不是 hook 的 bug。 <!-- S:caption=cordis.patch.yml 改动会导致会话崩溃 -->
 - **`interrupted` / `aborted: user` 不算崩**：那是按了停止。
 
 ### 规避清单（按成本从低到高）
