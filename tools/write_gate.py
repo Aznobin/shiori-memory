@@ -7,8 +7,8 @@
     python tools/write_gate.py --selftest       # 自带 13 条样本自测（含批 B 两条规则）
 
 输入：JSON 数组，每项形如
-    {"module": "89", "op": "add|merge|weight", "keys": ["…"], "body": "…",
-     "ids": ["89.012", "89.014"], "date": "2026-10-23"}
+    {"module": "813", "op": "add|merge|weight", "keys": ["…"], "body": "…",
+     "ids": ["813.012", "813.014"], "date": "2026-10-23"}
 
 输出：{"ok": true, "normalized": [...]}
   或  {"ok": false, "errors": [{"index": 2, "field": "body", "reason": "含代码围栏 ```"}]}
@@ -26,7 +26,8 @@ from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-REF = ROOT / "references"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from paths import module_files, resolve_module  # noqa: E402
 
 # merge / weight 是设计里预留的两档，但写入端（memwrite.py 的 apply）至今没接：
 # 闸门放行、写入端拒收，等于墙上贴着「已支持」，照墙办事的人一定撞。
@@ -50,7 +51,7 @@ SOURCES = ("user-original", "subagent", "test-transcript", "sample", "unknown")
 # 按「是不是关于人的断言」定强制范围，不按模块白名单凑数：
 #   00/01/31 是人相关模块；11 也要，但它走行尾标（样本混在真日记里，模块级盖不住）。
 #   90–99 那批机制件豁免——它们的来源是代码和文档，不是人。
-SUBJECT_MODULES = ("00", "01", "31")
+SUBJECT_MODULES = ("801", "001", "003")
 
 MAX_KEY_CHARS = 12
 MAX_BODY_LINES = 6
@@ -59,7 +60,7 @@ FENCE = "```"
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 FRAG_RE = re.compile(r"^\d{2}[a-z]?\.\d{3}$")
-MOD_FILE_RE = re.compile(r"^(\d{2}[a-z]?)-.+\.md$")
+MOD_FILE_RE = re.compile(r"^(\d{2,3}[a-z]?)-.+\.md$")
 # 标点、空白、全角符号：剔完还剩字才算「有实词」
 NON_WORD_RE = re.compile(
     r"[\s\u3000-\u303f\uff00-\uffef!-/:-@\[-`{-~]+"
@@ -68,16 +69,15 @@ HAN_RE = re.compile(r"[\u4e00-\u9fff]")
 
 
 def module_ids() -> set[str]:
-    """现有模块白名单：从 references/*.md 文件名取前缀，不写死。"""
+    """现有模块白名单：从 `memory/` 与 `references/` 实际文件名取前缀，不写死。"""
     ids: set[str] = set()
-    for path in REF.glob("*.md"):
-        m = MOD_FILE_RE.match(path.name)
-        if m:
-            ids.add(m.group(1))
-    # 2026-10-24：收件箱 `_待确认.md` 不以模块号开头，但它是合法的写入目标
+    for num, path in module_files().items():
+        if MOD_FILE_RE.match(path.name):
+            ids.add(num)
+    # 2026-10-24：收件箱 `922.md` 不以模块号开头，但它是合法的写入目标
     # （拿不准的内容先进收件箱），手册 §3 教的就是这个。漏了它 → 整批被闸门拒。
-    if (REF / "_待确认.md").exists():
-        ids.add("_待确认")
+    if resolve_module("922") is not None:
+        ids.add("922")
     return ids
 
 
@@ -214,7 +214,7 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
             for fid in ids:
                 if not isinstance(fid, str) or not FRAG_RE.match(fid.strip()):
                     errors.append(
-                        err(index, "ids", f"ids 里 {fid!r} 不是 frag id（形如 89.012）")
+                        err(index, "ids", f"ids 里 {fid!r} 不是 frag id（形如 813.012）")
                     )
                 else:
                     norm_ids.append(fid.strip())
@@ -302,34 +302,34 @@ def validate(payload) -> dict:
 
 GOOD = [
     {
-        "module": "89",
+        "module": "813",
         "op": "add",
         "keys": ["语气", "两档表态"],
         "body": "被问意见只有两档：同意 / 不同意。",
     },
     {
-        "module": "82",
+        "module": "901",
         "op": "replace",
         "keys": ["台账"],
         "body": "两行合成一行。",
         "old": "旧的那一行",
     },
     {
-        "module": "97",
+        "module": "915",
         "op": "add",
         "keys": ["评测"],
         "body": "加一条评测口径。",
         "date": "2026-10-23",
     },
     {
-        "module": "90",
+        "module": "903",
         "op": "add",
         "keys": ["检索"],
         "body": "第一行\n第二行\n第三行\n第四行\n第五行\n第六行",
         "updated": "2026-10-23",
     },
     {
-        "module": "08",
+        "module": "302",
         "op": "add",
         "keys": ["排障"],
         "body": "一行正文，" + "长" * 100,
@@ -345,27 +345,27 @@ BAD = [
     ),
     (
         "嵌套围栏",
-        {"module": "89", "op": "add", "keys": ["甲"], "body": "```text\n正文\n```"},
+        {"module": "813", "op": "add", "keys": ["甲"], "body": "```text\n正文\n```"},
         "body",
     ),
     (
         "超长",
-        {"module": "89", "op": "add", "keys": ["甲"], "body": "长" * 130},
+        {"module": "813", "op": "add", "keys": ["甲"], "body": "长" * 130},
         "body",
     ),
     (
         "keys 空",
-        {"module": "89", "op": "add", "keys": [], "body": "正文"},
+        {"module": "813", "op": "add", "keys": [], "body": "正文"},
         "keys",
     ),
     (
         "日期错",
-        {"module": "89", "op": "add", "keys": ["甲"], "body": "正文", "date": "2026/10/23"},
+        {"module": "813", "op": "add", "keys": ["甲"], "body": "正文", "date": "2026/10/23"},
         "date",
     ),
     (
         "op 非法",
-        {"module": "89", "op": "delete", "keys": ["甲"], "body": "正文"},
+        {"module": "813", "op": "delete", "keys": ["甲"], "body": "正文"},
         "op",
     ),
 ]
@@ -376,7 +376,7 @@ def selftest() -> int:
     # 原来直接照抄，换个库自测就红一片。改成按当前 references/ 实测白名单落位：
     # 白名单里有这个号就用它，没有就顺序借一个真实存在的模块。
     mods = module_ids()
-    ordered = sorted(mods) or ["90"]
+    ordered = sorted(mods) or ["903"]
 
     def pick(prefer: str, i: int) -> str:
         return prefer if prefer in mods else ordered[i % len(ordered)]
@@ -428,7 +428,7 @@ def selftest() -> int:
     total += 1
     today = date.today().isoformat()
     probe = {
-        "module": pick("90", 0),
+        "module": pick("903", 0),
         "op": "add",
         "keys": ["日期锚点"],
         "body": "批 B 日期锚点自测。",
@@ -461,7 +461,7 @@ def selftest() -> int:
         low = recall.ENTRY_SCORE + (recall.EXIT_SCORE - recall.ENTRY_SCORE) / 2
         two_level = recall.passes_entry(low) and not recall.passes_exit(low)
         card, fps = recall.build_card(
-            [(low, "90", 1, "低于出口阈的候选行，不该进上下文。")],
+            [(low, "903", 1, "低于出口阈的候选行，不该进上下文。")],
             {"turn": 9, "seen": [], "recent": []},
             "selftest",
             no_random=True,

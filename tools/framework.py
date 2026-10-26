@@ -42,12 +42,12 @@ DROP_ROOT_FILES = ["ENTRY.md"]
 KEEP_DIRS = ["bin", "templates", "tools"]
 
 # references/ 只留协议件：_模板 / _待确认 / 变更日志 / CATALOG + 系统区 90–99（含 91a、92a）
-KEEP_REF_EXACT = {"_模板.md", "_待确认.md", "变更日志.md", "CATALOG.md"}
+KEEP_REF_EXACT = {"926.md", "922.md", "921.md", "927.md"}
 KEEP_REF_RE = re.compile(r"^9[0-9]a?-")
 
-# tools/ 里不进框架分支的：本机状态、缓存、私有人格包
+# tools/ 里不进框架分支的：本机状态、缓存、私有人格包、她自己的私有脚本
 DROP_TOOL_NAMES = {"memdb.sqlite3", ".style_override.json"}
-DROP_TOOL_DIRS = {"__pycache__", "persona"}
+DROP_TOOL_DIRS = {"__pycache__", "persona", "private"}
 
 TEXT_SUFFIXES = {".md", ".py", ".json", ".ps1", ".psm1", ".cmd", ".sh",
                  ".yml", ".yaml", ".txt", ".toml", ".bat"}
@@ -294,7 +294,7 @@ def collect() -> tuple[list[Path], list[str]]:
                 continue
             keep.append(p)
 
-    # 2026-10-24：references 里的模块光靠文件名白名单不够——`91a-AGENTS骨架.md`
+    # 2026-10-24：references 里的模块光靠文件名白名单不够——`905-AGENTS骨架.md`
     # 正文是她的整套骨架实例（§8 硬塞层、她的规则），只按 9x 前缀就整篇进了公开库（0.3.3 发漏）。
     # 所以再尊重一次 frontmatter 的 distribute：drop / blank 都不进骨架。
     for p in sorted((ROOT / "references").glob("*.md")):
@@ -389,9 +389,9 @@ def plan() -> tuple[list[tuple[str, bytes]], list[str], int]:
     # 版本号与两个协议件在产物里重写，不动主库
     out = [(rel, FRAMEWORK_VERSION.encode() + b"\n") if rel == "VERSION" else (rel, raw)
            for rel, raw in out]
-    out = [(rel, CHANGELOG_STUB.encode()) if rel == "references/变更日志.md" else (rel, raw)
+    out = [(rel, CHANGELOG_STUB.encode()) if rel == "references/921.md" else (rel, raw)
            for rel, raw in out]
-    out = [(rel, INBOX_STUB.encode()) if rel == "references/_待确认.md" else (rel, raw)
+    out = [(rel, INBOX_STUB.encode()) if rel == "references/922.md" else (rel, raw)
            for rel, raw in out]
     # 框架产物的 SKILL.md 用公开版（主库那份是私人口径，不进产物）
     pub_skill = ROOT / "framework-public" / "public-SKILL.md"
@@ -416,25 +416,25 @@ def plan() -> tuple[list[tuple[str, bytes]], list[str], int]:
         if pub_agents.is_file():
             out.append(("AGENTS.md", pub_agents.read_bytes()))
 
-    # _路由详表.md：体检靠它核对「每个模块都登记进路由表」。SKILL.md 里的大类表是
-    # 裸编号（`90` `91`），匹配不上体检要求的 `90-名字` 形态；骨架又不含主库的小类详表，
+    # 928.md：体检靠它核对「每个模块都登记进路由表」。SKILL.md 里的大类表是
+    # 裸编号（`903` `904`），匹配不上体检要求的 `903-名字` 形态；骨架又不含主库的小类详表，
     # 结果新用户第一次体检 20 个模块全判「未登记」（0.3.5 实测，红得跟坏了似的）。
     detail = ["# 路由详表", "",
               "> 由 `tools/framework.py` 按包内模块生成，别手改。", "",
               "| 模块 | 标题 |", "| --- | --- |"]
     for rel, raw in out:
-        m = re.match(r"references/(\d{2}[a-z]?-[^/]+)\.md$", rel)
+        m = re.match(r"references/(\d{2,3}[a-z]?-[^/]+)\.md$", rel)
         if not m:
             continue
         txt = raw.decode("utf-8", "replace")
         tm = re.search(r"(?m)^title:\s*(.+)$", txt[:2000])
         title = (tm.group(1).strip().strip('"') if tm else m.group(1))
         detail.append(f"| `{m.group(1)}` | {title} |")
-    for stem, note in (("_待确认", "收件箱，下划线开头不算模块"), ("变更日志", "改动历史")):
+    for stem, note in (("922", "收件箱，下划线开头不算模块"), ("921", "改动历史")):
         if any(rel == f"references/{stem}.md" for rel, _ in out):
             detail.append(f"| `{stem}` | {note} |")
-    out = [x for x in out if x[0] != "references/_路由详表.md"]
-    out.append(("references/_路由详表.md", ("\n".join(detail) + "\n").encode("utf-8")))
+    out = [x for x in out if x[0] != "references/928.md"]
+    out.append(("references/928.md", ("\n".join(detail) + "\n").encode("utf-8")))
 
     # manifest.json：给别人用的更新器靠它知道「哪些文件属于骨架、每个文件的 sha256 是多少」。
     # 只列上面已经定稿的文件；自己不进自己的清单（否则自引用算不出来）。
@@ -474,19 +474,19 @@ def clean_worktree() -> None:
 
 
 def changelog_summary(limit: int = 200) -> str:
-    """从主库 `references/变更日志.md` 最新一行的「改动」列取一句摘要。
+    """从主库 `references/921.md` 最新一行的「改动」列取一句摘要。
 
     为什么要有这个（2026-10-24 她问「为什么不写变更，都长一个样」）：
     原来 framework 分支每个提交的 message 都是同一个模板，光看 commit 列表
     完全看不出这次改了什么。版本号能对上，但「为什么改」对不上。
     变更日志里那行是人写的原因，直接搬进 commit body。
     """
-    p = ROOT / "references" / "变更日志.md"
+    p = ROOT / "references" / "921.md"
     try:
         lines = p.read_text(encoding="utf-8").splitlines()
     except OSError:
         return ""
-    # `变更日志` 是倒序表（最新在顶部），取第一条能解析的完整数据行。
+    # `921` 是倒序表（最新在顶部），取第一条能解析的完整数据行。
     # 判定只看第一列是不是 YYYY-MM-DD——早先我用「行里不含『日期』二字」过滤，
     # 结果把正文里写了「日期」的行（退休标记那种）整个漏掉，读到的是上一条。
     for ln in lines:
@@ -593,7 +593,7 @@ def build(push: bool, push_public: bool = False) -> int:
         else:
             print(f"push-public: 失败（{(r.stderr or r.stdout).strip()[:200]}）")
             _repo = repo_url()
-            _remote = (_repo.replace("https://github.com/", "git@github.com:") + ".git") if _repo else "<发布库地址>"
+            _remote = (_repo.replace("https://github.com/", "<你的邮箱>:") + ".git") if _repo else "<发布库地址>"
             print(f"  提示：git remote add skeleton {_remote}")
             return 1
     return 0

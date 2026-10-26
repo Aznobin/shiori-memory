@@ -28,7 +28,11 @@ except Exception:
     pass
 
 ROOT = Path(__file__).resolve().parent.parent
-REFS = ROOT / "references"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from paths import CONTENT_DIR, SKELETON_DIR, module_files  # noqa: E402
+
+REFS = SKELETON_DIR
+MEM = CONTENT_DIR
 TOOLS = ROOT / "tools"
 TPL = ROOT / "templates"
 CFG = ROOT / "memory.config.json"
@@ -126,7 +130,7 @@ def main() -> int:
 
     print("=== 记忆模块初始化 ===")
 
-    for d in (REFS, TOOLS, TPL):
+    for d in (REFS, MEM, TOOLS, TPL):
         d.mkdir(parents=True, exist_ok=True)
     if not (ROOT / "SKILL.md").exists():
         print("❌ SKILL.md 不在，这不是完整的记忆模块目录")
@@ -134,7 +138,7 @@ def main() -> int:
 
     print("结构：")
     step("根目录 " + str(ROOT))
-    step(f"模块 {len(list(REFS.glob('*.md')))} 个")
+    step(f"模块 {len(module_files())} 个")
 
     cfg = load_cfg()
     paths = cfg.setdefault("paths", {})
@@ -175,7 +179,7 @@ def main() -> int:
     print("接下来：")
     print("  1. 填 memory.config.json 里的 workspace / codeRepo（体检脚本用它）")
     print("  2. 把打开记忆的约定写进你自己的 AGENTS.md（第 1 节）")
-    print("  3. 空模块（distribute: blank）按自己的情况逐条填，格式见 references/_模板.md")
+    print("  3. 空模块（distribute: blank）按自己的情况逐条填，格式见 references/926.md")
     print("  4. 要发给别人：python tools/pack.py")
     print("  5. 换设备 / 改过 86 §七之后：python tools/agents_sync.py 对齐 AGENTS.md 的托管块")
     return 0

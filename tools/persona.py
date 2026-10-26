@@ -6,7 +6,7 @@
     python tools/persona.py review --hours 6
     python tools/persona.py review --hours 72 --max 15
 
-只读，不改任何记忆文件；结论由人（我）判断后写进 85-我自己的账.md 的「变化」。
+只读，不改任何记忆文件；结论由人（我）判断后写进 808-我自己的账.md 的「变化」。
 """
 from __future__ import annotations
 

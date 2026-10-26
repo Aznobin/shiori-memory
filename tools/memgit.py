@@ -23,6 +23,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from config import git_identity  # noqa: E402
+from paths import module_paths  # noqa: E402
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -142,7 +143,7 @@ def ssh_remote():
     elif url.startswith("git@") or url.startswith("ssh://"):
         _SSH_CACHE = url
     else:
-        # https://github.com/u/r.git → git@github.com:u/r.git
+        # https://github.com/u/r.git → <你的邮箱>:u/r.git
         host, _, path = url.split("//", 1)[-1].partition("/")
         _SSH_CACHE = f"git@{host}:{path}" if host and path else url
     return _SSH_CACHE
@@ -166,7 +167,7 @@ def git_net(*args, timeout=NET_TIMEOUT, budget=None):
     2026-10-21 实测：全局 `http.proxy` 指向 127.0.0.1:7897，CONNECT 回 200
     但 TLS 立刻 EOF（`schannel: failed to receive handshake`）；把代理关掉直连
     又是 `Recv failure: Connection was reset` / `Could not connect to server`。
-    同一分钟里 `ssh -T git@github.com` 正常认证、`git push` 走 SSH 一次就过。
+    同一分钟里 `ssh -T <你的邮箱>` 正常认证、`git push` 走 SSH 一次就过。
     所以顺序是：① 按配置走 → ② 绕代理直连 → ③ 换 SSH remote。
     每步只在「像网络错误」时才往下走，别的错（冲突、权限、no upstream）立刻返回，
     免得把真错误也当成网络问题重试三遍。
@@ -271,7 +272,7 @@ def default_msg(root=None):
     root = root or ROOT
     files = changed_files(root)
     try:
-        log_path = pathlib.Path(root) / "references" / "变更日志.md"
+        log_path = pathlib.Path(root) / "references" / "921.md"
         log = log_path.read_text(encoding="utf-8")
         rows = [ln for ln in log.splitlines() if ln.startswith("| 20")]
         if rows:
@@ -293,7 +294,7 @@ def default_msg(root=None):
 
 
 def selftest():
-    """临时仓库里验说明兜底：只写 `_待确认.md`（变更日志里没有它那一行）时，说明不能复用上一条。"""
+    """临时仓库里验说明兜底：只写 `922.md`（变更日志里没有它那一行）时，说明不能复用上一条。"""
     import shutil
     import tempfile
 
@@ -313,10 +314,10 @@ def selftest():
         root = pathlib.Path(tmp)
         refs = root / "references"
         refs.mkdir(parents=True, exist_ok=True)
-        (refs / "变更日志.md").write_text(
+        (refs / "921.md").write_text(
             "| 日期 | 文件 | 改动 | 触发 |\n"
             "| --- | --- | --- | --- |\n"
-            "| 2026-10-26 | `references/86-独立人格与立场.md` | 【上一条说明】不该被复用 | 自测 |\n",
+            "| 2026-10-26 | `memory/809-独立人格与立场.md` | 【上一条说明】不该被复用 | 自测 |\n",
             encoding="utf-8",
             newline="",
         )
@@ -326,16 +327,16 @@ def selftest():
             ["git", "config", "--local", "user.email", "selftest@local"],
         ):
             subprocess.run(cmd, cwd=str(root), capture_output=True, timeout=10)
-        (refs / "_待确认.md").write_text("待确认内容\n", encoding="utf-8", newline="")
+        (refs / "922.md").write_text("待确认内容\n", encoding="utf-8", newline="")
         subprocess.run(["git", "add", "-A"], cwd=str(root), capture_output=True, timeout=10)
-        (refs / "_待确认.md").write_text("待确认内容改了\n", encoding="utf-8", newline="")
+        (refs / "922.md").write_text("待确认内容改了\n", encoding="utf-8", newline="")
 
         files = changed_files(root)
-        check("能取到改动文件名", any(f.endswith("_待确认.md") for f in files), str(files))
+        check("能取到改动文件名", any(f.endswith("922.md") for f in files), str(files))
         msg = default_msg(root)
         check(
-            "只写 _待确认.md 时说明与内容一致（不复用上一条）",
-            "_待确认.md" in msg and "上一条说明" not in msg,
+            "只写 922.md 时说明与内容一致（不复用上一条）",
+            "922.md" in msg and "上一条说明" not in msg,
             msg,
         )
         check(
@@ -344,17 +345,17 @@ def selftest():
             msg,
         )
 
-        (refs / "86-独立人格与立场.md").write_text("正文\n", encoding="utf-8", newline="")
+        (refs / "809-独立人格与立场.md").write_text("正文\n", encoding="utf-8", newline="")
         subprocess.run(["git", "add", "-A"], cwd=str(root), capture_output=True, timeout=10)
         matched = default_msg(root)
         check("有对应变更日志行时仍用那行说明", "不该被复用" in matched, matched)
 
-        (refs / "变更日志.md").unlink()
+        (refs / "921.md").unlink()
         subprocess.run(["git", "add", "-A"], cwd=str(root), capture_output=True, timeout=10)
         no_log = default_msg(root)
-        check("变更日志缺失时也走文件名兜底", "_待确认.md" in no_log, no_log)
+        check("变更日志缺失时也走文件名兜底", "922.md" in no_log, no_log)
 
-        check("仓库没被自测改坏", (refs / "_待确认.md").read_text(encoding="utf-8") == "待确认内容改了\n")
+        check("仓库没被自测改坏", (refs / "922.md").read_text(encoding="utf-8") == "待确认内容改了\n")
 
     shutil.rmtree(tmp, ignore_errors=True)
     print(f"selftest {passes}/{total}")
@@ -378,7 +379,7 @@ def cmd_init(_args):
 
 def cmd_remote(args):
     if not args:
-        print("用法：python tools/memgit.py remote <git@github.com:你/user-memory.git>")
+        print("用法：python tools/memgit.py remote <<你的邮箱>:你/user-memory.git>")
         return
     if "origin" in git("remote", check=False).stdout:
         git("remote", "set-url", "origin", args[0])
@@ -465,7 +466,7 @@ def ensure_fragments():
     index = ROOT / "fragments" / "INDEX.md"
     if not frag_py.exists():
         return
-    refs = list((ROOT / "references").glob("*.md"))
+    refs = module_paths()
     stale = not index.exists()
     if not stale and refs:
         try:

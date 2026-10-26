@@ -6,6 +6,7 @@
     setup.ps1  VERSION  config.example.json  references/9*.md（协议件）
 
 你自己在 references/ 里建的模块不在骨架里，随便改。
+你自己在 tools/private/ 里放的脚本也不在骨架里，随便改。
 
 用法：
     python tools/skeleton_guard.py           # 检查；被动过就逐条列出并 exit 1
@@ -86,6 +87,8 @@ def main() -> int:
             continue
         for f in sorted(base.rglob("*")):
             if not f.is_file():
+                continue
+            if f.relative_to(root).parts[:2] == ("tools", "private"):
                 continue
             rel = f.relative_to(root).as_posix()
             if rel not in known:

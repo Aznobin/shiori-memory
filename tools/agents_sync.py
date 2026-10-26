@@ -33,15 +33,15 @@ except Exception:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import cfg  # noqa: E402
+from paths import CONTENT_DIR  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-REFS = ROOT / "references"
 
 BEGIN = "<!-- CORE:BEGIN -->"
 END = "<!-- CORE:END -->"
 TITLE = "## 硬塞层（每轮注入，由 `tools/agents_sync.py` 生成，**别手写**）"
 
-CORE_SRC = "86-独立人格与立场.md"
+CORE_SRC = "809-独立人格与立场.md"
 
 
 def read(path: Path) -> str:
@@ -53,7 +53,7 @@ def read(path: Path) -> str:
 
 def core_items() -> list[str]:
     """从 86 §七 抽硬塞层清单：真源只有这一处，其余全是派生。"""
-    src = next(iter(sorted(REFS.glob("86-*.md"))), REFS / CORE_SRC)
+    src = next(iter(sorted(CONTENT_DIR.glob("809-*.md"))), CONTENT_DIR / CORE_SRC)
     text = read(src)
     if not text:
         return []

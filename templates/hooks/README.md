@@ -55,4 +55,4 @@ node "<...>\pnpm.cjs" add @deepseek-ai/dsh-hook-protocol@0.2.1-rc.2
   不重启的办法：`plugin_manager set_plugin include:memory-recall-hooks enabled:false` 再来一次 `true`。
 - 不许拿 `set_plugin ... enabled:false` 当热重载去点 `sandbox-policy` / `shell` / `permission`：那是别人的依赖 fiber，disable 会把会话当场 dispose。
 
-详见 `references/98-hook通道与验收.md`。
+详见 `references/917-hook通道与验收.md`。

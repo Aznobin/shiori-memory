@@ -36,6 +36,70 @@ except Exception:
 
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
 
+# 2026-10-27 阶段3补（Lead 裁定）：纯数字 QQ 号 / 数字开头的邮箱是隐私 id，不是「名字」，
+# 统一抹成 <邮箱已移除>；普通邮箱仍走 <你的邮箱>。两条数字规则放前面，否则会被通用规则先吃掉。
+EMAIL_NUM_QQ_RE = re.compile(r"(?i)\d{5,}@qq\.com")
+EMAIL_NUM_RE = re.compile(r"(?i)\d{5,}@[A-Za-z0-9.-]+")
+EMAIL_ANY_RE = re.compile(r"(?i)[\w.%+-]+@[\w-]+\.[A-Za-z]{2,}")
+
+
+def sanitize_emails(text: str) -> str:
+    text = EMAIL_NUM_QQ_RE.sub("<邮箱已移除>", text)
+    text = EMAIL_NUM_RE.sub("<邮箱已移除>", text)
+    return EMAIL_ANY_RE.sub("<你的邮箱>", text)
+
+
+# 2026-10-27 阶段3补（Lead 裁定）：脱敏残渣清理。
+# 真实成因（她抓的）：QQ 号在替换表里被拆成两半——前段变 %USERNAME%，后段 <邮箱已移除>
+# 再被邮箱规则抹掉，拼出 `<你的署名> <你的邮箱>` 这种半截串。
+# 残渣比裸号更糟：它既泄露「这里有真号」的形状，又让人看不懂。这里折回干净占位。
+RESIDUE_RULES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"<你的名字或 ID>\s*<?%USERNAME%?\s*<邮箱已移除>>?"), "<你的署名> <你的邮箱>"),
+    (re.compile(r"<你的名字或 ID>\s*<邮箱已移除>"), "<你的署名> <你的邮箱>"),
+    (re.compile(r"<你的邮箱>"), "<你的邮箱>"),
+    (re.compile(r"<你的邮箱>|<你的邮箱>"), "<你的邮箱>"),
+]
+
+
+def clean_residue(text: str) -> str:
+    for rx, rep in RESIDUE_RULES:
+        text = rx.sub(rep, text)
+    return text
+
+
+def selftest_sanitize() -> int:
+    """sanitize 的邮箱 + 残渣规则自测：确认数字 id 命中、残渣被折平、普通邮箱不被误判成移除。"""
+    cases = [
+        ("联系 <邮箱已移除> 谢谢", "<邮箱已移除>", "<你的邮箱>"),
+        ("owner <你的邮箱>", "<邮箱已移除>", "<你的邮箱>"),
+        ("备用 <邮箱已移除>", "<邮箱已移除>", "<你的邮箱>"),
+        ("模板 <你的邮箱>", "<你的邮箱>", "<邮箱已移除>"),
+        ("普通 <你的邮箱>", "<你的邮箱>", "<邮箱已移除>"),
+    ]
+    bad: list[str] = []
+    for src, want, banned in cases:
+        got = sanitize_emails(src)
+        if want not in got:
+            bad.append(f"{src!r} -> {got!r}（缺 {want}）")
+        elif banned and banned in got:
+            bad.append(f"{src!r} -> {got!r}（混进 {banned}）")
+    residue_cases = [
+        ("发行署 <你的署名> <你的邮箱>", "发行署 <你的署名> <你的邮箱>"),
+        ("<你的署名> <你的邮箱>", "<你的署名> <你的邮箱>"),
+    ]
+    for src, want in residue_cases:
+        got = clean_residue(sanitize_emails(src))
+        if got != want:
+            bad.append(f"残渣 {src!r} -> {got!r}（应为 {want!r}）")
+    if bad:
+        print("❌ sanitize 邮箱自测失败：")
+        for b in bad:
+            print(f"   {b}")
+        return 1
+    print(f"✅ sanitize 邮箱自测 {len(cases)}/{len(cases)} 通过"
+          f"（数字 id → <邮箱已移除>）；残渣 {len(residue_cases)}/{len(residue_cases)} 通过")
+    return 0
+
 
 def read(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
@@ -91,7 +155,7 @@ def to_blank(text: str, hint: str = "") -> str:
     fm, body = split_doc(text)
     # 2026-10-24：只有 frontmatter 是「空槽」还漏——她的兴趣、学科、项目名
     # 全写在 keywords 里，blank 之后照样把整串关键词发出去。keywords 一律换成占位。
-    # 占位优先用模块自己的通用名（`07-项目.md` → 项目），这样空槽还能被「项目」这类词命中；
+    # 占位优先用模块自己的通用名（`301-项目.md` → 项目），这样空槽还能被「项目」这类词命中；
     # 拿不到才退回「待填」——「待填」两个字谁也不会在笔记里写，等于这个词废了。
     key = hint or "待填"
     lines = fm.replace("\r\n", "\n").split("\n")
@@ -114,7 +178,7 @@ def to_blank(text: str, hint: str = "") -> str:
 
     fm = re.sub(r"(?m)^updated:.*$", f"updated: {_date.today().isoformat()}", fm)
     head, _ = get_head(body)
-    note = "\n> 这个模块是空的：按自己的情况往里加条目，一条只记一个事实，格式见 `_模板.md`。\n"
+    note = "\n> 这个模块是空的：按自己的情况往里加条目，一条只记一个事实，格式见 `926.md`。\n"
     return fm + head + note
 
 
@@ -140,7 +204,12 @@ def main() -> int:
     ap.add_argument("--keep-dir", action="store_true", help="压包的同时保留解压目录")
     ap.add_argument("--persona", action="store_true",
                     help="额外把 tools/persona/ 的可分发人格放进包（人格包）")
+    ap.add_argument("--selftest", action="store_true",
+                    help="只跑 sanitize 的脱敏自测，不打包")
     args = ap.parse_args()
+
+    if args.selftest:
+        return selftest_sanitize()
 
     root = Path(args.root).expanduser()
     refs = root / "references"
@@ -185,7 +254,7 @@ def main() -> int:
             f"https://raw.githubusercontent.com/{_owner}/{_repo}",
             f"https://github.com/{_owner}/{_repo}",
             f"https://codeload.github.com/{_owner}/{_repo}",
-            f"git@github.com:{_owner}/{_repo}.git",
+            f"<你的邮箱>:{_owner}/{_repo}.git",
         ]
 
     def sanitize(text: str) -> str:
@@ -206,6 +275,11 @@ def main() -> int:
         WIN_HOME_ESC_RE = re.compile(r"(?i)[A-Z]:[\\\\/]+Users[\\\\/]+[^\\\\/\s\"']+")
         text = WIN_HOME_ESC_RE.sub("%USERPROFILE%", text)
         text = WIN_HOME_RE.sub("%USERPROFILE%", text)
+        # 2026-10-27 阶段 3c：用户名被换成占位符、邮箱尾巴（<你的邮箱>）却还在，
+        # 906 这类会进包的骨架文档实测漏过一次；包内一律把真邮箱抹成占位符。
+        # 2026-10-27 阶段3补：数字 id 邮箱（<邮箱已移除>）单列成 <邮箱已移除>。
+        text = sanitize_emails(text)
+        text = clean_residue(text)
         for token, url in shields.items():
             text = text.replace(token, url)
         return text
@@ -218,7 +292,7 @@ def main() -> int:
     src_refs = root / "references"
     bad: list[str] = []
     for f in sorted(src_refs.glob("*.md")):
-        if f.name in ("CATALOG.md", "_模板.md"):
+        if f.name in ("927.md", "926.md"):
             continue
         v = front_field(read(f), "distribute", default_mode(f.stem))
         if v not in ALLOWED:
@@ -258,6 +332,10 @@ def main() -> int:
     # 2026-10-26：表情包图库（meme-packs/ 里的 441 张图 + index.db）是本地资源，
     # 进发行包体积翻十倍；换机靠记忆库 git 同步 + tools/meme_pack_deploy.ps1 建链接。
     ex_dirs.add("meme-packs")
+    # 2026-10-27 阶段 3c：内容模块（000–899）住 memory/，那是用户自己的记忆，整目录不进包
+    # （已搬进 memory/ 的私库文件不带 drop 标记，靠 frontmatter 拦不住，只能按目录排除；
+    #   包内 memory/ 只放一份公开语气模板，见下面 813 那段）。
+    ex_dirs.add("memory")
     ex_files = set(pack_cfg.get("excludeFiles") or [".style_override.json", "memdb.sqlite3"])
     ex_files.add("memory.config.json")
 
@@ -272,6 +350,9 @@ def main() -> int:
         # 人格模板只走 --persona 那条线进包（放在包根的 persona/），不跟着 tools/ 一起复制
         if rel.parts[:2] == ("tools", "persona"):
             continue
+        # 2026-10-26：private/ 是依赖本机环境/私人图库的脚本，公开包永不包含
+        if rel.parts[:2] == ("tools", "private"):
+            continue
         # 两台机器的私人 AGENTS 副本（含个人规则与原话），只留在本机，不进包
         if rel.parts[:2] == ("templates", "hosts"):
             continue
@@ -285,7 +366,7 @@ def main() -> int:
     dropped: list[str] = []
     ref_target = target / "references"
     for file in sorted(ref_target.glob("*.md")):
-        if file.name in ("CATALOG.md", "_模板.md"):
+        if file.name in ("927.md", "926.md"):
             continue
         raw = read(file)
         mode = front_field(raw, "distribute", default_mode(file.stem))
@@ -314,7 +395,7 @@ def main() -> int:
             stat["keep"] += 1
         write(file, sanitize(packed))
 
-    # 2026-10-24：ENTRY.md 是本机入口页（私库名、我自己的分类），framework 产物那边由
+    # 2026-701-24：ENTRY.md 是本机入口页（私库名、我自己的分类），framework 产物那边由
     # DROP_ROOT_FILES 剔掉，分发包漏了这条——桌面演练里它直接流出去了，还带着双重编码乱码。
     entry = target / "ENTRY.md"
     if entry.exists():
@@ -336,7 +417,7 @@ def main() -> int:
     owner = owner_m.group(1) if owner_m else ""
 
     for rel in ("SKILL.md", "README.md", "LICENSE", "setup.ps1", "templates/AGENTS.md",
-                "references/_模板.md", "config.example.json"):
+                "references/926.md", "config.example.json"):
         p = target / rel
         if p.exists():
             body = sanitize(read(p))
@@ -346,24 +427,24 @@ def main() -> int:
 
     # 2026-10-24（她指出）：发出去的包缺「开局必读的语气模块」——
     # 那是别人装这个库的根本原因（要一个像人的说话方式），却是 drop 的。
-    pub89 = root / "framework-public" / "public-89-语气与交流.md"
+    pub89 = root / "framework-public" / "public-813-语气与交流.md"
     if pub89.exists():
-        refs = target / "references"
-        if refs.is_dir():
-            # 源库的 89 是私人语气（drop 掉的），包内换成模板版
-            for old in refs.glob("89-*.md"):
-                old.unlink()
-            write(refs / "89-语气与交流.md", sanitize(pub89.read_text(encoding="utf-8")))
-            print("  语气模块：包里放模板版 references/89-语气与交流.md（开局必读）")
+        # 源库的语气模块是私人件（在 memory/，整目录不进包），包内换成模板版。
+        # 2026-10-27 阶段 3c：内容模块改住 memory/，模板也跟着搬，不然包里的
+        # public-AGENTS.md 指着一个不存在的 references/813 路径。
+        mem_target = target / "memory"
+        mem_target.mkdir(parents=True, exist_ok=True)
+        write(mem_target / "813-语气与交流.md", sanitize(pub89.read_text(encoding="utf-8")))
+        print("  语气模块：包里放模板版 memory/813-语气与交流.md（开局必读）")
 
     # 2026-10-26 P1-C（她定的）：references/ 改成公开白名单，白名单外默认不进 dist。
-    # 只留：公开模板语气 89（上面刚生成）、90–99 系统区（含 91a/92a/93a/96a/97a）、
-    # _模板.md、_路由详表.md、CATALOG.md（这两份索引随后按白名单重建）。
-    # 私人模块（00–88、08a、12a/12b、21a/21b、变更日志、_待确认、_巡检记录、
+    # 2026-10-27 阶段 3c：内容模块（000–899）已全搬进 memory/，这里只剩 9xx 系统区
+    # 与骨架节点目录，白名单继续只放 90–99 系统区 + 926/927/928 三份索引。
+    # 私人模块（08a、12a/12b、21a/21b、变更日志、_待确认、_巡检记录、
     # _合并候选、_复核清单、_表情包清单…）一律在包内删掉，不靠 frontmatter 黑名单。
-    PUBLIC_REF_FIXED = {"89-语气与交流.md", "CATALOG.md", "_模板.md", "_路由详表.md"}
-    # 2026-10-26 她定的：99-架构大纲 是内部总图（待办、决策、提交号太多），不进公开包。
-    PUBLIC_REF_EXCLUDE = {"99-架构大纲.md"}
+    PUBLIC_REF_FIXED = {"927.md", "926.md", "928.md"}
+    # 2026-10-26 她定的：918-架构大纲 是内部总图（待办、决策、提交号太多），不进公开包。
+    PUBLIC_REF_EXCLUDE = {"918-架构大纲.md"}
     if ref_target.is_dir():
         removed_refs = []
         for f in sorted(ref_target.glob("*.md")):
@@ -371,7 +452,9 @@ def main() -> int:
                 f.unlink()
                 removed_refs.append(f.name)
                 continue
-            if f.name in PUBLIC_REF_FIXED or re.match(r"^9[0-9][a-z]?-", f.name):
+            # 2026-10-27 阶段 3c：编号三位化后这条 2 位正则全落空，9xx 骨架文档被整批
+            # 踢出包（dist references 只剩节点目录）。改成兼容 2/3 位。
+            if f.name in PUBLIC_REF_FIXED or re.match(r"^9\d{1,2}[a-z]?-", f.name):
                 continue
             f.unlink()
             removed_refs.append(f.name)
@@ -424,13 +507,13 @@ def main() -> int:
                 copied += 1
             persona_note = f"人格模板 {copied} 份（persona/）"
 
-    # 2026-10-24：CATALOG.md 是从主库复制过来的，里面列着 55 个模块（01 基本背景、10 健康、
+    # 2026-701-24：927.md 是从主库复制过来的，里面列着 55 个模块（01 基本背景、10 健康、
     # 12a 英语…全是私人内容）。进包必须按包里真实剩下的模块重建，只留 90–99 + 协议件。
-    cat = ref_target / "CATALOG.md"
+    cat = ref_target / "927.md"
     if cat.exists():
         rows = []
         for f in sorted(ref_target.glob("*.md")):
-            if f.name in ("CATALOG.md", "_模板.md"):
+            if f.name in ("927.md", "926.md"):
                 continue
             txt = read(f)
             title = front_field(txt, "title", f.stem).strip('"') or f.stem
@@ -452,21 +535,21 @@ def main() -> int:
         write(cat, head + "\n".join(rows) + "\n")
         print(f"   CATALOG 已按包内模块重建：{len(rows)} 个")
 
-    # _路由详表.md：体检靠它核对模块是否登记（同 framework 侧，见那里的注释）。
+    # 928.md：体检靠它核对模块是否登记（同 framework 侧，见那里的注释）。
     detail = ["# 路由详表", "",
               "> 由 `tools/pack.py` 按包内模块生成，别手改。", "",
               "| 模块 | 标题 |", "| --- | --- |"]
-    skip = {"CATALOG.md", "_模板.md", "_路由详表.md", "_巡检记录.md", "_复核清单.md", "_合并候选.md"}
+    skip = {"927.md", "926.md", "928.md", "923.md", "925.md", "924.md"}
     for f in sorted(ref_target.glob("*.md")):
         if f.name in skip:
             continue
         stem = f.stem
-        if not (re.match(r"^\d{2}[a-z]?-", f.name) or stem in ("_待确认", "变更日志")):
+        if not (re.match(r"^\d{2}[a-z]?-", f.name) or stem in ("922", "921")):
             continue
         txt = read(f)
         title = front_field(txt, "title", stem).strip('"') or stem
         detail.append(f"| `{stem}` | {title} |")
-    write(ref_target / "_路由详表.md", "\n".join(detail) + "\n")
+    write(ref_target / "928.md", "\n".join(detail) + "\n")
 
     # tools/recall_eval.py：评测集必须跟着包内模块走（2026-10-24 新设备演练）。
     # 主库的题引用 78/27/22/24… 这些模块分发包里根本不存在，新用户跑出来的
@@ -511,7 +594,7 @@ def main() -> int:
         if m:
             present_ids.add(m.group(1))
         present_ids.add(f.stem.split("-")[0])
-    present_ids.update({"SKILL", "CATALOG"})
+    present_ids.update({"SKILL", "927"})
     for f in ref_target.glob("*.md"):
         text = read(f)
         new = re.sub(
@@ -647,6 +730,20 @@ def main() -> int:
         sha_lines.append(f"{hashlib.sha256((target / rel).read_bytes()).hexdigest()}  {rel}")
     write(target / "SKELETON.sha256", "\n".join(sha_lines) + "\n")
     print(f"   骨架校验清单 SKELETON.sha256：{len(skeleton_items)} 项")
+
+    # 2026-10-27 阶段3补（Lead 裁定）：公开包 memory/ 只允许放 framework-public 白名单里的
+    # 「distribute: blank 语气模板」——新用户装完要能直接填，但不能夹带私库正文。
+    # 这条是硬断言：违反就 exit 非 0，连 zip 都不打（不靠人自觉）。
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import verify_pack  # noqa: E402
+
+    mem_bad = verify_pack.dist_memory_violations(target)
+    if mem_bad:
+        print("❌ memory/ 断言失败（只允许 framework-public 白名单的 distribute: blank 模板）：")
+        for b in mem_bad:
+            print(f"   {b}")
+        return 1
+    print("   memory/ 断言通过：包内语气模板均来自 framework-public 白名单且 distribute: blank")
 
     if args.no_zip:
         print(f"✅ 生成目录 {target}")

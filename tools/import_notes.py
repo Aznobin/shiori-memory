@@ -31,6 +31,9 @@ from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent
 ROOT = TOOLS.parent
+sys.path.insert(0, str(TOOLS))
+from paths import module_files  # noqa: E402
+
 REF = ROOT / "references"
 IMPORT_DIR = ROOT / "state" / "imports"
 
@@ -40,10 +43,10 @@ MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_BODY_LINES = 6
 # 台账/清单类模块：内容是工具自己写进去的，不该当「你写的笔记」的路由目标（2026-10-24）
 # 00 是身份页（我是谁 / 怎么称呼 / 想要什么语气），只许人自己写，导入一律不进。
-ROUTE_SKIP = {"82", "00"}
+ROUTE_SKIP = {"901", "801"}
 # 日记里出现的技术名词会被这些模块吸走（排障、巡检、架构、迁移），但它们不是「日记该去的地方」
-DIARY_NOISE = {"08", "83", "90", "91", "91a", "92", "92a", "93", "94", "95", "96", "97", "97a", "98", "99"}
-DIARY_MODULE = "11"        # 日常记录：日记形态的内容默认归这里
+DIARY_NOISE = {"302", "902", "903", "904", "905", "906", "907", "908", "911", "912", "913", "915", "916", "917", "918"}
+DIARY_MODULE = "101"        # 日常记录：日记形态的内容默认归这里
 DIARY_CONF = 1.6           # 低于这个置信度，就不跟「更像的模块」抢
 MAX_LINE_CHARS = 120
 MIN_BLOCK_CHARS = 12
@@ -243,7 +246,7 @@ def collect_files(target: Path) -> list[Path]:
 def build_module_index() -> dict[str, dict]:
     """每个模块一份词袋：frontmatter keywords + 标题 + 正文。"""
     index: dict[str, dict] = {}
-    for path in sorted(REF.glob("*.md")):
+    for path in module_files().values():
         if path.name.startswith("_"):
             continue
         m = re.match(r"^(\d{2}[a-z]?)", path.name)
@@ -251,11 +254,11 @@ def build_module_index() -> dict[str, dict]:
             continue
         mod = m.group(1)
         # 2026-10-24：系统区（90-99）是协议与架构文档，不是「你写的笔记」该去的地方。
-        # 以前日记类内容因为 90-99 词袋巨大被打到 99-架构大纲，等于把日常日记塞进设计文档
+        # 以前日记类内容因为 90-99 词袋巨大被打到 918-架构大纲，等于把日常日记塞进设计文档
         # （新设备演练里 5 篇日记全进了 99/96，就是这个原因）。
         if mod.startswith("9"):
             continue
-        # 2026-10-24 第二刀：82-重复问题台账也是「工具往里写」的台账，不是目录。
+        # 2026-10-24 第二刀：901-重复问题台账也是「工具往里写」的台账，不是目录。
         # 它词袋最大，实测把 20 块日记吸走 13 块（82×13 · 11×4 · 12b×2 · 31×1），
         # 日记全进了问题台账，等于导入等于白导。
         if mod in ROUTE_SKIP:
@@ -358,7 +361,7 @@ def make_row(block: dict, body: list[str], index: dict[str, dict], df: dict[str,
     return {
         "skip": False,
         "date": block["date"],
-        "module": mod or "_待确认",
+        "module": mod or "922",
         "conf": conf,
         "alt": top3[1][0] if len(top3) > 1 else "",
         "keys": keys_of(text),
@@ -437,11 +440,11 @@ def parse_draft(path: Path) -> list[dict]:
         m = re.match(r"^(\d{2}[a-z]?)", cell_mod)
         if m:
             module = m.group(1)
-        elif cell_mod in ("_待确认", "待确认", "待定", "?"):
-            # 2026-10-24：模块列允许写 `_待确认`（拿不准的内容先进收件箱，手册 §3 就是这么教的）。
+        elif cell_mod in ("922", "待确认", "待定", "?"):
+            # 2026-10-24：模块列允许写 `922`（拿不准的内容先进收件箱，手册 §3 就是这么教的）。
             # 原来这里只认数字模块号，非数字直接 continue —— 标了 OK 的行凭空消失，
             # 27 条标 OK 只落地 26 条，而且一声不响（新设备演练发现的丢数据坑）。
-            module = "_待确认"
+            module = "922"
         else:
             print(f"  [跳过] #{cells[0]} 模块列「{cell_mod}」既不是模块号也不是 _待确认")
             continue
@@ -556,7 +559,7 @@ def selftest() -> int:
     ok = True
     sample = "# 2026-10-24 今日\n- 装了 Node 22，顺手把 pnpm 也升了\n- 修好了 recall 的 `expand_query`，权重降到 0.45\n\n## 随手记\n今天试了下新的检索打分，效果还行\n"
     with tempfile.TemporaryDirectory() as td:
-        p = Path(td) / "2026-10-24-日记.md"
+        p = Path(td) / "2026-701-212-日记.md"
         p.write_text(sample, encoding="utf-8")
         blocks = split_blocks(p)
         assert blocks, "切块失败：一条都没切出来"

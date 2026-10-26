@@ -118,18 +118,18 @@ def passes_exit(score, top=0.0):
 # 元规则模块降权（2026-10-26 她定）：闲聊查询里 90-99 这些讲「记忆库自己怎么修」的行
 # 会靠「记忆/库/检索」这些字抢前排，把真话题挤掉。非维护查询里乘一个权重。
 META_W = env_num("MEMORY_RECALL_META_W", 0.2)
-META_DOCS = {"90", "91", "91a", "92", "93", "95", "97", "97a", "98", "99", "21"}
+META_DOCS = {"903", "904", "905", "906", "908", "912", "915", "916", "917", "918", "304"}
 MAINT_WORDS = ("检索", "打分", "片段", "hook", "索引", "frag", "memdb", "recall", "注入",
                "巡检", "体检", "骨架", "打包", "分发", "评测", "同义词", "词库", "权重", "降权", "命中")
 
 # 这些模块永远不自动注入。
-# 注意 memdb 的 docs.id 是裸编号（'10' / '22'），写成 '10-健康' 会恒不命中、
+# 注意 memdb 的 docs.id 是裸编号（'701' / '102'），写成 '701-健康' 会恒不命中、
 # 让敏感模块静默漏进上下文（2026-10-21 审计 H2 实测：搜「睡眠」直接返回 [10:11]）。
-BANNED_DOCS = ("10", "22", "changelog")
+BANNED_DOCS = ("701", "102", "changelog")
 # 只保留真·隐私词。`体检` 2026-10-21 从这张表里撤掉：全库 25 行含「体检」，
-# **0 行在 `10-健康`**，绝大多数是「记忆库体检」这个机制词（`83` 6 行、`79`/`94`/`99` 各 2 行）。
+# **0 行在 `701-健康`**，绝大多数是「记忆库体检」这个机制词（`902` 6 行、`804`/`911`/`918` 各 2 行）。
 # 留着它的实测后果：「推送失败怎么办」本来 `83:5`「查出问题怎么办」命中 2 个词、
-# 模块分 1.00 稳居榜首，却因为那行同时写着「体检」被整行丢弃，最后只剩 `08` 的 BSOD 行顶上。
+# 模块分 1.00 稳居榜首，却因为那行同时写着「体检」被整行丢弃，最后只剩 `302` 的 BSOD 行顶上。
 BANNED_HINTS = ("健康", "病历", "设计稿")
 
 # 回忆类词：一出现就立刻注入，不等轮次
@@ -291,12 +291,12 @@ def _best_line_for(con, doc_id, toks, weights=None):
 
     返回 `(line, text, hits)`，`hits` 是这一行真正命中的查询词数。
     这个数交给上层做二次排序用（2026-10-21）：模块分高但整篇没有一处字面命中，
-    说明它只是靠 frontmatter 的 keywords 蹭上来的——`08` 就是这么把
+    说明它只是靠 frontmatter 的 keywords 蹭上来的——`302` 就是这么把
     「代理又连不上了」抢走的（它的 keywords 里有代理/TLS/握手，正文里一个没有），
     真正写这件事的 `82:30` 反而被挤掉。
 
     命中分**按词的稀有度加权**（`weights`，来自 memdb 的 `1/(df+1)^0.6`）：
-    原来一个词算 1 分，于是「沙箱写入被拒」在 `08` 里第 22 行（只靠 `写入` 命中）
+    原来一个词算 1 分，于是「沙箱写入被拒」在 `302` 里第 22 行（只靠 `写入` 命中）
     和第 34 行（靠 `沙箱` 命中，那是全库唯一的沙箱条目）打成平手，
     再被「先出现的行优先」的 tie-break 判给了蓝屏那行。稀有词命中必须更值钱。
     """
@@ -316,7 +316,7 @@ def _best_line_for(con, doc_id, toks, weights=None):
         s += 2 if kind == "bullet" else 0
         s -= 3 if kind == "head" else 0
         # 长行里顺手提到主题词 ≠ 这行是在讲这个主题（2026-10-22）：
-        # 「你是什么性格」在 `78` 里只命中 `性格` 一个词，`78:85`（246 字，讲变更日志署名）、
+        # 「你是什么性格」在 `803` 里只命中 `性格` 一个词，`78:85`（246 字，讲变更日志署名）、
         # `78:98`（47 字）、`78:5`（118 字）三行同分，tie-break 把最长的 `78:85` 判给了注入卡。
         # 加一条密度项：同样的命中，字越少越可能是**专门讲这件事**的那一行。
         # 系数压得很小（0.002/字），只用来打破同分，不改原有排序结论。
@@ -341,7 +341,7 @@ def retrieve(query, k=None):
     ② **取行仍交给 memdb**：frag 只有片段，没有行号，注入卡片要的是能直接引用的
        具体某一行，所以每个入选模块回库里挑一行代表。
     ③ **靠 keywords 蹭上来的模块要降权**：frag 的模块分里有 `module_kw ×0.8`，
-       而 frontmatter 的 keywords 可能和正文脱节（实测 `08` 的 keywords 写了
+       而 frontmatter 的 keywords 可能和正文脱节（实测 `302` 的 keywords 写了
        「代理/TLS/握手/断网」，正文一处都没有），它会靠这些词把「代理又连不上了」
        抢到榜首，真正写这事的 `82:30` 反被挤掉。所以挑到行之后再按**这一行的
        字面命中数**重排：命中 ≥1 的把分数拉满，0 命中的只保留 0.25 的底分。
@@ -374,7 +374,7 @@ def retrieve(query, k=None):
         weights = {t: 1.0 / ((df[t] + 1) ** 0.6) for t in toks}
         # 人设分边成立时，同侧那 3 个模块豁免「0 字面命中就打 0.25 折」（2026-10-22）：
         # 「我的设定是什么」里 `设定` 只撞上 `96:41` 的「输出你的设定」（讲提示注入的例子，
-        # 跟她本人无关），`31` 正文一个词都没沾，于是被这条罚则压到 96 后面。
+        # 跟她本人无关），`003` 正文一个词都没沾，于是被这条罚则压到 96 后面。
         # 人设模块的 keywords 是逐条人工维护的，比别处可信，不适用这条罚则。
         side = None
         try:
@@ -384,9 +384,9 @@ def retrieve(query, k=None):
             pass
         exempt = set()
         if side == "self":
-            exempt = {"78", "85", "86"}
+            exempt = {"803", "808", "809"}
         elif side == "user":
-            exempt = {"01", "31", "29"}
+            exempt = {"001", "003", "002"}
         for module_id, mod_score in ranking[: max(k, MAX_N)]:
             hit = _best_line_for(con, module_id, toks, weights)
             if not hit:
@@ -415,11 +415,11 @@ def retrieve(query, k=None):
     out = []
     seen = set()
     for score, doc, line, text in rows:
-        # 精确比对编号：用子串会把 '10' 误伤到以 10 开头的别的 id
+        # 精确比对编号：用子串会把 '701' 误伤到以 10 开头的别的 id
         if str(doc) in BANNED_DOCS:
             continue
         # 89 系（人格模块）已经每轮常驻注入，这里跳过避免重复
-        if str(doc).startswith("89"):
+        if str(doc).startswith("813"):
             continue
         if any(h in str(text) for h in BANNED_HINTS):
             continue
@@ -521,7 +521,7 @@ def random_old_row(st, exclude_fps):
         return None
     pool = []
     for doc, line, text in rows:
-        if str(doc) in BANNED_DOCS or str(doc).startswith("89"):
+        if str(doc) in BANNED_DOCS or str(doc).startswith("813"):
             continue
         if any(h in str(text) for h in BANNED_HINTS):
             continue

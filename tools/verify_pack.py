@@ -20,6 +20,7 @@ import argparse
 import compileall
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BRANCH = "framework"
+
+# 2026-10-27 阶段3补（Lead 裁定）：公开包 memory/ 只允许放「语气模板」占位——新用户装完要能直接填。
+# 允许清单按文件名写死；每个条目都必须能在源库 framework-public/public-<名字> 找到正源，
+# 且带 distribute: blank（不夹带私库正文）。pack.py 出包末尾直接调 dist_memory_violations()。
+DIST_MEMORY_ALLOW = {"813-语气与交流.md"}
+FM_DISTRIBUTE_RE = re.compile(r"(?m)^\s*distribute\s*:\s*[\"']?([A-Za-z_]+)")
 
 P0 = "P0"
 P1 = "P1"
@@ -53,6 +60,44 @@ def pack_kind(pkg: Path) -> str:
     if (pkg / "templates" / "AGENTS.md").exists():
         return "pack"
     return "unknown"
+
+
+def dist_memory_violations(pkg: Path) -> list[str]:
+    """包内 memory/ 的硬约束：只有 framework-public 白名单模板，且 frontmatter 是 distribute: blank。
+
+    为什么要有它（2026-10-27 阶段3补，Lead 裁定）：公开包必须留一份「语气模板」占位，
+    新用户装完能直接填；但这份占位一旦被换回私库正文，或塞进别的内容模块，就是隐私外泄。
+    靠人自觉守不住，所以做成断言：pack.py 出包末尾调用，违规直接 exit 非 0。
+    """
+    mem = pkg / "memory"
+    if not mem.is_dir():
+        return []
+    bad: list[str] = []
+    for f in sorted(mem.rglob("*.md")):
+        rel = f.relative_to(mem).as_posix()
+        if rel not in DIST_MEMORY_ALLOW:
+            bad.append(f"{rel}: 不在 framework-public 白名单里（禁止夹带私库模块）")
+            continue
+        src = ROOT / "framework-public" / f"public-{rel}"
+        if not src.exists():
+            bad.append(f"{rel}: 源模板 {src.name} 在 framework-public/ 里找不到")
+            continue
+        m = FM_DISTRIBUTE_RE.search(f.read_text(encoding="utf-8", errors="replace")[:800])
+        got = (m.group(1).lower() if m else "")
+        if got != "blank":
+            bad.append(f"{rel}: frontmatter distribute={got or '缺失'}，要求 blank")
+    return bad
+
+
+def check_dist_memory(pkg: Path) -> None:
+    if not (pkg / "memory").is_dir():
+        record(P1, "memory/ 白名单断言", None, "包内没有 memory/ 目录，跳过")
+        return
+    bad = dist_memory_violations(pkg)
+    files = sorted(p.relative_to(pkg / "memory").as_posix()
+                   for p in (pkg / "memory").rglob("*.md"))
+    record(P0, f"memory/ 白名单断言（{len(files)} 个文件）", not bad,
+           "全部来自 framework-public 且 distribute: blank" if not bad else "; ".join(bad[:3]))
 
 
 def export_from_branch(dest: Path) -> bool:
@@ -266,6 +311,7 @@ def main() -> int:
     print(f"产物来源: {origin}")
     print("-" * 60)
     check_assets(pkg)
+    check_dist_memory(pkg)
     check_skeleton(pkg)
     check_syntax(pkg)
     check_urls(pkg)

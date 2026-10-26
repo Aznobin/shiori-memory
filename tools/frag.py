@@ -32,30 +32,29 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import synonyms  # noqa: E402
+from paths import ROOT, module_paths, rel, resolve_module  # noqa: E402
 
-ROOT = Path(__file__).resolve().parent.parent
-REF = ROOT / "references"
 FRAG = ROOT / "fragments"
 
 MAX_LINES = int(os.environ.get("FRAG_MAX_LINES", "4"))   # 单片段上限，可用环境变量覆盖做 A/B
 # 「一个整体」的模块：身份（00）必须整片到达。人设被切成 3+2 时，检索只捞得回半个人，
 # 而 00 一共就十几行——放大上限比让下一个人手工凑到 4 条更划算（2026-10-24 shiori-old 实测）。
-WHOLE_MODULES = {"00"}
+WHOLE_MODULES = {"801"}
 WHOLE_MAX_LINES = int(os.environ.get("FRAG_WHOLE_MAX_LINES", "40"))
 
 # 退休行（软删，2026-10-24 她定的「删是软删」）：正文留在 md 里，但不进片段、不被检索命中。
 # 依据 `references/90` §4「本库没有容量压力，删等于丢」。
 RETIRED_RE = re.compile(r"（已退休 \d{4}-\d{2}-\d{2}：")
 MIN_CHARS = 20          # 太短的段落并入上一片段
-SENSITIVE_MODULES = {"10", "22", "23"}
-MAIN_MODULES = {"89", "87", "88", "02", "02a", "07", "83", "86", "85", "90", "77", "97", "98", "99"}
-SKIP_FILES = {"CATALOG.md", "变更日志.md"}
+SENSITIVE_MODULES = {"701", "102", "211"}
+MAIN_MODULES = {"813", "811", "812", "201", "202", "301", "902", "809", "808", "903", "802", "915", "917", "918"}
+SKIP_FILES = {"927.md", "921.md"}
 # 2026-10-24：`stats` 报的「模块数」改成文件口径，与 catalog.py / memory_check.py 相等（23）；
-# 本文件只切其中能切的那部分（`变更日志` 按日志处理、不切片），所以另报一个「有片段」的数。
+# 本文件只切其中能切的那部分（`921` 按日志处理、不切片），所以另报一个「有片段」的数。
 # 排除表与 catalog.py 的 EXCLUDE 逐项对齐，改一处就一起改。
-MODULE_FILES_EXCLUDE = ("_模板.md", "CATALOG.md", "_复核清单.md", "_巡检记录.md", "_路由详表.md",
-                        "_合并候选.md")
-SLICE_UNDERSCORE = {"_待确认.md"}   # inbox 里的半句话也要搜得到，否则写进去等于没写（2026-10-20）
+MODULE_FILES_EXCLUDE = ("926.md", "927.md", "925.md", "923.md", "928.md",
+                        "924.md")
+SLICE_UNDERSCORE = {"922.md"}   # inbox 里的半句话也要搜得到，否则写进去等于没写（2026-10-20）
 
 DATE_CACHE = FRAG / ".dates.json"   # 行级日期缓存；build 只删 *.md，这份 json 留着（2026-10-23）
 RECENT_HALF_LIFE = 90.0             # 时间乘子的半衰期：90 天新鲜度掉一半
@@ -362,11 +361,14 @@ def build() -> int:
     date_cache = _date_cache_load()
     carried = carry_decay_state()
 
-    files = sorted(p for p in REF.glob("*.md") if _sliceable(p))
+    files = sorted(p for p in module_paths() if _sliceable(p))
     for path in files:
         meta, body = parse_front(path.read_text(encoding="utf-8"))
         mod_id = str(meta.get("id") or path.name.split("-")[0])
         mod_id = mod_id.strip('"')
+        # 末位为 0 的编号是骨架节点：只放结构，不进片段、不参与检索（2026-10-26 她定）
+        if mod_id.isdigit() and mod_id.endswith("0"):
+            continue
         mod_title = meta.get("title") or path.stem
         weight = "main" if mod_id in MAIN_MODULES else "second"
         sensitive = (mod_id in SENSITIVE_MODULES) or meta.get("sensitive", "false").lower() == "true"
@@ -595,15 +597,15 @@ def score(item: dict, q: set[str], idf: dict[str, float], avgdl: float | None = 
 # ---------------------------------------------------------------- 人设分边
 #
 # 2026-10-22 她报的：人设部分的命中率低，她自己的和我自己的都低。实测确实是——
-# 模块 `78`/`85`/`86`（我）与 `01`/`31`/`29`（她）的 keywords 高度重叠，
+# 模块 `803`/`808`/`809`（我）与 `001`/`003`/`002`（她）的 keywords 高度重叠，
 # 「性格」「人格」「脾气」这些词两边都写了，纯 BM25 分不开，于是：
-#   问「你是什么性格」→ 榜首是 `31`（她的侧写）
-#   问「我是个什么样的人」→ 榜首是 `78`（我自己的性格）
+#   问「你是什么性格」→ 榜首是 `003`（她的侧写）
+#   问「我是个什么样的人」→ 榜首是 `803`（我自己的性格）
 # 词表再补也治不了，因为两边的词是**同一批**。唯一可靠的信号是**人称**：
 # 谁紧贴在主题词前面，问的就是谁。
 
-SELF_MODULES = {"78", "85", "86"}     # 我：性格 / 账 / 立场
-USER_MODULES = {"01", "31", "29"}     # 她：背景 / 侧写 / 命名
+SELF_MODULES = {"803", "808", "809"}     # 我：性格 / 账 / 立场
+USER_MODULES = {"001", "003", "002"}     # 她：背景 / 侧写 / 命名
 
 SUBJECT_TOPICS = (
     "性格", "人格", "人设", "脾气", "侧写", "口味", "雷点", "原则", "立场",
@@ -671,7 +673,7 @@ def subject_bias(query: str, scores: dict[str, float]) -> dict[str, float]:
 
     只作用在人设那 7 个模块上，别的模块一分不改——她问技术问题时这条规则完全空转。
     为什么还要「顶榜」：`78/85/86` 与 `01/31/29` 的词表几乎重合，靠乘一个 1.35 的
-    系数翻不过 `92`（记忆机制本身也写了「性格」「人格」这些词）。人称已经把问题
+    系数翻不过 `906`（记忆机制本身也写了「性格」「人格」这些词）。人称已经把问题
     答出来了，就不该再让词频决定榜首；但只有同侧真有关联（≥ 原榜首 15%）才顶，
     否则「分析一下我这个人」这种两边都弱的问法会被硬塞一个不相干的人设模块。
     """
@@ -735,7 +737,7 @@ def filename_fallback(q: set[str], limit: int = 8) -> list[tuple[str, list[str]]
     if not q:
         return []
     scored: list[tuple[float, str, list[str]]] = []
-    paths = list(FRAG.rglob("*.md")) + list(REF.glob("*.md"))
+    paths = list(FRAG.rglob("*.md")) + module_paths()
     for p in paths:
         rel = p.relative_to(ROOT).as_posix()
         hit = sorted(q & tokens_of(rel))
@@ -748,7 +750,7 @@ def filename_fallback(q: set[str], limit: int = 8) -> list[tuple[str, list[str]]
 
 
 def _merge_id_spec(items: list[dict]) -> str:
-    """同源组 id 写法：连续 → `02a.011–02a.015`；不连续 → `02a.001, 011–015`。
+    """同源组 id 写法：连续 → `202.011–202.015`；不连续 → `202.001, 011–015`。
 
     连续性按片段号（frag 尾号）判，不按 part.seq——part.seq 是同源组内序号，和 frag 号不是一回事。
     """
@@ -966,7 +968,7 @@ def pack_doc(args: argparse.Namespace) -> dict:
             and i["module"] not in used_modules]
     secondary = random.sample(rest, min(args.random, len(rest))) if rest else []
 
-    # 引用跟随：主片段里提到别的模块（`02a-…`），就补一条那模块的片段，别让读到的片段断在半路
+    # 引用跟随：主片段里提到别的模块（`202-…`），就补一条那模块的片段，别让读到的片段断在半路
     followed: list[dict] = []
     if args.follow:
         need = {r for item in main for r in item.get("refs", [])}
@@ -1058,7 +1060,7 @@ def cmd_stats(_: argparse.Namespace) -> int:
     for i in idx:
         by_mod[i["module"]] = by_mod.get(i["module"], 0) + 1
     top = sorted(by_mod.items(), key=lambda kv: -kv[1])[:5]
-    mods = sum(1 for p in REF.glob("*.md") if p.name not in MODULE_FILES_EXCLUDE)
+    mods = sum(1 for p in module_paths() if p.name not in MODULE_FILES_EXCLUDE)
     print(f"片段 {len(idx)} 个 · 模块 {mods} 个（有片段 {len(by_mod)}）· 主 {mains} / 次 {len(idx) - mains}")
     print(f"正文 {chars:,} 字 · 平均 {chars // max(len(idx), 1)} 字/片段 · 行数中位 {lines[len(lines) // 2]}、最长 {lines[-1]}")
     print(f"敏感片段 {sens} 个（检索时排除）· 模块间引用 {refs} 条")
@@ -1116,7 +1118,7 @@ def cmd_morning(args: argparse.Namespace) -> int:
     """开场包：人格三块（语气 / 立场 / 我自己的账）各一 + 全库随机几条。"""
     idx = load_index()
     out, used = [], set()
-    for mod in ("89", "86", "85"):
+    for mod in ("813", "809", "808"):
         cands = [i for i in idx
                  if i["module"] == mod and i["weight"] == "main" and not i["sensitive"]]
         if not cands:
@@ -1141,10 +1143,13 @@ def cmd_morning(args: argparse.Namespace) -> int:
 
 def cmd_core(_: argparse.Namespace) -> int:
     """硬塞层：把 86 第七节「硬塞层清单」的条目整段打出来，直接贴进前言。"""
-    path = ROOT / "references" / "86-独立人格与立场.md"
+    path = resolve_module("809")
+    if path is None:
+        print("找不到模块 809（独立人格与立场），检查 memory/ 或 references/", file=sys.stderr)
+        return 1
     text = path.read_text(encoding="utf-8")
     if "## 七、硬塞层清单" not in text:
-        print("没有找到「硬塞层清单」小节，检查 references/86-独立人格与立场.md", file=sys.stderr)
+        print(f"没有找到「硬塞层清单」小节，检查 {rel(path)}", file=sys.stderr)
         return 1
     block = text.split("## 七、硬塞层清单", 1)[1]
     lines = [ln.strip() for ln in block.splitlines()]

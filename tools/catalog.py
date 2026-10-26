@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""生成 references/CATALOG.md —— 记忆库一页总览。
+"""生成 references/927.md —— 记忆库一页总览。
 
 换设备或新会话时先读 CATALOG，就能看清每个模块装什么、
 多大、最近改过没，不用打开任何模块正文。
 
 用法：
-    python tools/catalog.py          # 重新生成 CATALOG.md
+    python tools/catalog.py          # 重新生成 927.md
 """
 import re
+import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-REF = ROOT / "references"
-OUT = REF / "CATALOG.md"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from paths import ROOT, SKELETON_DIR, module_files  # noqa: E402
+
+REF = SKELETON_DIR
+OUT = SKELETON_DIR / "927.md"
 
 
 def parse_frontmatter(text: str) -> dict:
@@ -40,10 +43,10 @@ def parse_frontmatter(text: str) -> dict:
 
 
 # 与 tools/memory_check.py 的 module_files 用同一份排除表，两个脚本的「模块数」必须相等
-# 2026-10-24：`_合并候选.md` 是 `decay.py --pairs` 的生成物，memory_check / routes / pack 早就排了，
+# 2026-10-24：`924.md` 是 `decay.py --pairs` 的生成物，memory_check / routes / pack 早就排了，
 # 这里漏一个 → CATALOG 数出 24、体检数出 23，两页打架。补上后三处同为 23。
-EXCLUDE = ("_模板.md", "CATALOG.md", "_复核清单.md", "_巡检记录.md", "_路由详表.md",
-           "_合并候选.md")
+EXCLUDE = ("926.md", "927.md", "925.md", "923.md", "928.md",
+           "924.md")
 
 
 def line_count(text: str) -> int:
@@ -54,7 +57,7 @@ def line_count(text: str) -> int:
 
 def main() -> None:
     rows = []
-    for p in sorted(REF.glob("*.md")):
+    for p in sorted(module_files().values(), key=lambda q: q.name):
         if p.name in EXCLUDE:
             continue
         text = p.read_text(encoding="utf-8")

@@ -22,9 +22,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config import cfg  # noqa: E402
+from paths import ROOT, module_paths  # noqa: E402
 from routes import route_rows  # noqa: E402
 
-REF = Path((cfg.get("paths") or {}).get("skill") or Path(__file__).resolve().parent.parent) / "references"
+# 配置里若指到别的 skill 目录，仍兼容扫它的 references/（本库默认就是 ROOT）
+_SKILL = Path((cfg.get("paths") or {}).get("skill") or ROOT).resolve()
+EXTRA_REF = None if _SKILL == ROOT.resolve() else _SKILL / "references"
 
 MAX_CHARS = 12000
 MAX_LINES = 300
@@ -45,7 +48,10 @@ def parse_meta(text: str) -> dict:
 
 def module_files() -> dict[str, Path]:
     out: dict[str, Path] = {}
-    for p in sorted(REF.glob("*.md")):
+    candidates = list(module_paths())
+    if EXTRA_REF is not None and EXTRA_REF.is_dir():
+        candidates += sorted(EXTRA_REF.glob("*.md"))
+    for p in candidates:
         meta = parse_meta(p.read_text(encoding="utf-8", errors="replace"))
         mid = (meta.get("id") or p.name.split("-")[0]).strip('"')
         out.setdefault(mid, p)

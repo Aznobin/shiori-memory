@@ -2,7 +2,7 @@
 """骨架更新器：把「工具链 + 模板 + 协议件」换成新版，绝不碰你自己的记忆正文。
 
 为什么需要它：记忆库分成两层——**骨架**（`tools/`、`templates/`、`SKILL.md`、`9x-*` 那些说明书）
-和**内容**（`01`～`89` 那些装着你自己东西的模块）。骨架会一直改，内容是你的。更新只换骨架。
+和**内容**（`001`～`813` 那些装着你自己东西的模块）。骨架会一直改，内容是你的。更新只换骨架。
 
 三种用法：
 
@@ -11,7 +11,7 @@
     python tools/update.py rollback   # 换坏了退回去（只有非 git 路线会留备份）
 
 设计上的三条硬规则：
-1. **只动 manifest.json 里列的文件**。manifest 之外的一个字节都不碰，`01`～`89` 永远安全。
+1. **只动 manifest.json 里列的文件**。manifest 之外的一个字节都不碰，`001`～`813` 永远安全。
 2. **不静默覆盖你改过的东西**。git 仓库内由 `git pull` 自己报冲突；非 git 路线把冲突文件写成
    `xxx.new` 放旁边，你自己合。
 3. **检测失败一律静默**。没网、超时、被墙都不算错，退出码 0，不吓人。
@@ -105,7 +105,7 @@ def zip_url(base: str) -> str:
 
 def remote_url(base: str) -> str:
     owner, repo, _branch = _split_source(base)
-    return f"git@github.com:{owner}/{repo}.git" if owner else ""
+    return f"<你的邮箱>:{owner}/{repo}.git" if owner else ""
 
 
 def fetch(url: str, timeout: int) -> bytes:
@@ -316,17 +316,17 @@ def is_framework_path(rel: str) -> bool:
 
 
 # 用户自己长出来的结构件：升级永远不碰它们。
-# 教训（2026-10-24 新设备 shiori-old 实测）：`变更日志` 是 `distribute: reset`，
-# 包里只有表头，apply 一覆盖她 24 条日志全没了；`CATALOG` 是主库目录，覆盖成 55 模块。
+# 教训（2026-10-24 新设备 shiori-old 实测）：`921` 是 `distribute: reset`，
+# 包里只有表头，apply 一覆盖她 24 条日志全没了；`927` 是主库目录，覆盖成 55 模块。
 # 这些东西的正确归属是「用户的库」，不是「骨架」。
 USER_OWNED = (
-    "references/变更日志.md",
-    "references/CATALOG.md",
-    "references/_巡检记录.md",
-    "references/_待确认.md",
-    "references/_路由详表.md",
-    "references/_合并候选.md",
-    "references/_模板.md",
+    "references/921.md",
+    "references/927.md",
+    "references/923.md",
+    "references/922.md",
+    "references/928.md",
+    "references/924.md",
+    "references/926.md",
 )
 
 

@@ -27,6 +27,19 @@ from datetime import date, datetime
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB = os.path.join(ROOT, "tools", "memdb.sqlite3")
 REFS = os.path.join(ROOT, "references")
+CONTENT = os.path.join(ROOT, "memory")
+
+
+def module_files() -> list[str]:
+    """两个根里的模块 md：`references/` 与 `memory/`（阶段3a 双根读取）。"""
+    out: list[str] = []
+    for base in (REFS, CONTENT):
+        if not os.path.isdir(base):
+            continue
+        for name in sorted(os.listdir(base)):
+            if name.endswith(".md"):
+                out.append(os.path.join(base, name))
+    return out
 STATE = os.path.join(os.path.expanduser("~"), ".agents", "state")
 LOCK = os.path.join(STATE, "memory.lock")
 SNAP = os.path.join(STATE, "snapshots")
@@ -151,9 +164,7 @@ def do_index(_):
         con.execute(f"DROP TABLE IF EXISTS {t}")
     con.executescript(SCHEMA)
     files = [os.path.join(ROOT, "SKILL.md")]
-    for f in sorted(os.listdir(REFS)):
-        if f.endswith(".md"):
-            files.append(os.path.join(REFS, f))
+    files += module_files()
     n = 0
     for p in files:
         txt = read(p)
@@ -320,7 +331,7 @@ QUIZ = [
     ("哪些健康信息不主动提", "健康 提及", "敏感健康信息"),
     ("自维护能改什么范围", "记忆模块自身", "记忆模块自身"),
     ("Hindsight 为什么关了", "hindsight", "hindsight"),
-    ("上次改了记忆库的哪里", "变更日志", "变更日志"),
+    ("上次改了记忆库的哪里", "921", "921"),
 ]
 
 
@@ -368,8 +379,23 @@ def do_forget(a):
     print(f"已软删 {len(rows)} 行（记得去 md 里删掉对应行）")
 
 
+def _zip_tree(z, base: str) -> None:
+    """把一个根（references/ 或 memory/）下的 md 收进快照；不存在就跳过。"""
+    if not os.path.isdir(base):
+        return
+    for name in sorted(os.listdir(base)):
+        p = os.path.join(base, name)
+        if os.path.isfile(p) and name.endswith(".md"):
+            z.write(p, name)
+        elif os.path.isdir(p):
+            for f in sorted(os.listdir(p)):
+                fp = os.path.join(p, f)
+                if os.path.isfile(fp):
+                    z.write(fp, f"{name}/{f}")
+
+
 def do_snapshot(a):
-    """把 references/ 全部 md 打一份 zip 快照，保留最近 N 份（默认 20）。"""
+    """把模块 md（`references/` + `memory/`）打一份 zip 快照，保留最近 N 份（默认 20）。"""
     import zipfile
     keep = max(1, int(getattr(a, "keep", 20) or 20))
     os.makedirs(SNAP, exist_ok=True)
@@ -377,15 +403,8 @@ def do_snapshot(a):
     out = os.path.join(SNAP, f"references-{stamp}.zip")
     with flock():
         with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-            for name in sorted(os.listdir(REFS)):
-                p = os.path.join(REFS, name)
-                if os.path.isfile(p) and name.endswith(".md"):
-                    z.write(p, name)
-                elif os.path.isdir(p):
-                    for f in sorted(os.listdir(p)):
-                        fp = os.path.join(p, f)
-                        if os.path.isfile(fp):
-                            z.write(fp, f"{name}/{f}")
+            _zip_tree(z, REFS)
+            _zip_tree(z, CONTENT)
     snaps = sorted(
         f for f in os.listdir(SNAP)
         if f.startswith("references-") and f.endswith(".zip")
@@ -406,7 +425,7 @@ def do_random(a):
     con = connect()
     docs = con.execute(
         "SELECT id, title FROM docs WHERE sensitive=0 AND always=0 "
-        "AND id NOT IN ('变更日志', 'CATALOG', 'SKILL', '_待确认', '_巡检记录', '_复核清单')"
+        "AND id NOT IN ('921', '927', 'SKILL', '922', '923', '925')"
     ).fetchall()
     random.shuffle(docs)
     picked = 0

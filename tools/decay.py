@@ -3,7 +3,7 @@
 
 用法：
   python tools/decay.py           算一遍，写 state/decay.json（同一天重跑，文件字节不变）
-  python tools/decay.py --pairs   出 references/_合并候选.md（只列候选，不合并）
+  python tools/decay.py --pairs   出 references/924.md（只列候选，不合并）
   python tools/decay.py --show    只看统计，不写盘
 
 口径（2026-10-23 定，别自己调）：
@@ -32,14 +32,17 @@ except Exception:
     pass
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from paths import SKELETON_DIR  # noqa: E402
+
 INDEX = ROOT / "fragments" / "index.json"
 STATE = ROOT / "state" / "decay.json"
-CANDIDATES = ROOT / "references" / "_合并候选.md"
+CANDIDATES = SKELETON_DIR / "924.md"
 
 HALF_LIFE_DAYS = 90.0      # 半衰期（Lead 2026-10-23 钉死：历史不满 30 天前不许调）
 COLD_BELOW = 0.5           # recency 低于这个值算冷
 ARCHIVE_QUIET_DAYS = 30    # 冷了之后多少天没命中就归档
-SENSITIVE_MODULES = {"10", "22", "23"}   # 合并候选不碰敏感模块，免得她的私事落进运维文档
+SENSITIVE_MODULES = {"701", "102", "211"}   # 合并候选不碰敏感模块，免得她的私事落进运维文档
 WORDFUL = re.compile(r"[\u4e00-\u9fffA-Za-z]")   # 交集词里只留带字面的，纯编号 / 标点不算内容重叠
 
 SAME_MODULE_COMMON = 2     # 合并候选：同模块内 keys 交集至少这么多（模块级公共词先剔掉再数）
@@ -258,7 +261,7 @@ def _pairs_doc(today: date | None = None) -> tuple[str, dict]:
         'sensitive: "false"',
         'always: "false"',
         'maintain_only: "true"',
-        # 2026-10-26 引号链：日期不裹引号（`_合并候选.md` 是 decay.py 自己重写的生成物，
+        # 2026-10-26 引号链：日期不裹引号（`924.md` 是 decay.py 自己重写的生成物，
         # 带引号会被 memory_check 的 updated 正则判成「没有可解析的 updated 日期」）
         f'updated: {day}',
         "distribute: drop",
@@ -271,7 +274,7 @@ def _pairs_doc(today: date | None = None) -> tuple[str, dict]:
         "判据：同模块内 `keywords` 交集 ≥ "
         f"{SAME_MODULE_COMMON}（先剔掉连 80% 片段都带的模块标签词）、标题相似度（difflib）≥ {TITLE_SIMILAR}，"
         "并且**去掉标题尾部「（n）」后的 base 必须不同**——base 相同的算同源切片（`MAX_LINES` 机械切出来的兄弟片段），"
-        f"只进切片组、不进候选。按「交集词数 → 相似度」降序，最多 {MAX_PAIRS} 对。敏感模块（`10` `22` `23`）两张表都不进。",
+        f"只进切片组、不进候选。按「交集词数 → 相似度」降序，最多 {MAX_PAIRS} 对。敏感模块（`701` `102` `211`）两张表都不进。",
         "",
         f"- 真重复候选：**{len(found)} 对**（本次列 {len(top)} 对）",
         f"- 切片组：**{len(groups)} 组**，共 {covered} 个片段（{len(idx)} 条里的 {covered * 100 // max(1, len(idx))}%）",
@@ -385,7 +388,7 @@ def _selftest() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="冷热分层与合并候选（只读侧）")
-    ap.add_argument("--pairs", action="store_true", help="只出 references/_合并候选.md")
+    ap.add_argument("--pairs", action="store_true", help="只出 references/924.md")
     ap.add_argument("--show", action="store_true", help="只打印统计，不写 state")
     ap.add_argument("--selftest", action="store_true", help="自检 --pairs 的 updated 引号链（不写盘）")
     ap.add_argument(

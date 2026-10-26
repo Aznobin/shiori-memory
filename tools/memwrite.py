@@ -14,11 +14,11 @@
     python tools/memwrite.py --selftest                # 临时目录里自测
 
 payload 形状（数组，每项一条）：
-    [{"module": "90", "op": "add", "keys": ["语气", "道歉"],
+    [{"module": "903", "op": "add", "keys": ["语气", "道歉"],
       "section": "硬禁忌", "body": "第一行正文\\n第二行正文"}]
 
 field 说明：
-    module   必填，模块号（`89`），白名单从 references/ 实际文件名现取
+    module   必填，模块号（`813`），白名单从 references/ 实际文件名现取
     op       必填，当前只支持 add（merge / weight 仍走人工，脚本会明确拒绝）
     keys     必填，1~12 字的主题词，进 keys 校验
     section  可选，`## 小节标题` 的名字；不给就落在文件末尾
@@ -88,14 +88,42 @@ def frontmatter_end(lines: list[str]) -> int:
     return 0
 
 
-def module_file(ref: Path, module: str) -> Path:
-    # 2026-10-24：收件箱的文件名就是 `_待确认.md`，不带短横线后缀，单独认一下
-    if module.startswith("_"):
-        hits = sorted(p for p in ref.glob(f"{module}.md"))
-    else:
-        hits = sorted(p for p in ref.glob(f"{module}-*.md") if not p.name.startswith("_"))
+def module_dirs(root: Path) -> list[Path]:
+    """模块可能待的两个目录：`memory/` 优先，`references/` 兼容一层（阶段3a 双根读取）。"""
+    return [root / "memory", root / "references"]
+
+
+def skeleton_dir(root: Path) -> Path:
+    """骨架与协议件目录（900–999 与生成物 921–929）。"""
+    return root / "references"
+
+
+def target_dir(root: Path, module: str) -> Path:
+    """新模块该落在哪：内容（000–899）进 `memory/`，骨架（900+）进 `references/`。"""
+    m = re.match(r"^(\d+)", module)
+    if m and int(m.group(1)) >= 900:
+        return skeleton_dir(root)
+    return root / "memory"
+
+
+def module_file(root: Path, module: str) -> Path:
+    # 末位为 0 的编号是骨架节点：只能由 tools/skeleton_nodes.py 生成，agent 不许自动填充
+    if module.isdigit() and module.endswith("0"):
+        raise SystemExit(
+            f"[拒绝] {module} 是骨架节点，只能由 tools/skeleton_nodes.py 生成；内容请写到末位非 0 的模块"
+        )
+    # 2026-10-24：收件箱的文件名就是 `922.md`，不带短横线后缀，单独认一下
+    pattern = f"{module}.md" if module.startswith("_") else f"{module}-*.md"
+    hits: list[Path] = []
+    for base in module_dirs(root):
+        if not base.is_dir():
+            continue
+        found = sorted(base.glob(pattern))
+        if not module.startswith("_"):
+            found = [p for p in found if not p.name.startswith("_")]
+        hits += found
     if not hits:
-        raise SystemExit(f"[拒绝] references/ 下找不到模块 {module} 的文件")
+        raise SystemExit(f"[拒绝] memory/ 与 references/ 下都找不到模块 {module} 的文件")
     if len(hits) > 1:
         names = " / ".join(p.name for p in hits)
         raise SystemExit(f"[拒绝] 模块号 {module} 撞了多个文件：{names}")
@@ -243,7 +271,7 @@ def insert_at(lines: list[str], start: int, end: int, bullets: list[str]) -> lis
 
 def changelog_row(root: Path, today: str, files: str, summary: str) -> bool:
     """插在变更日志表头分隔线下面（表是新的在上、旧的下沉），不是文件末尾。"""
-    path = root / "references" / "变更日志.md"
+    path = skeleton_dir(root) / "921.md"
     if not path.is_file():
         return False
     lines, crlf = read_doc(path)
@@ -271,7 +299,6 @@ def run(cmd: list[str], root: Path) -> tuple[int, str]:
 
 
 def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
-    ref = root / "references"
     planned: list[dict] = []
     errors: list[dict] = []
     skipped: list[dict] = []
@@ -291,7 +318,7 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
             )
             continue
         try:
-            path = module_file(ref, item["module"])
+            path = module_file(root, item["module"])
         except SystemExit as exc:
             errors.append({"index": index, "field": "module", "reason": str(exc)})
             continue
@@ -358,7 +385,7 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
 
         # op=retire：软删（2026-10-24 她定的「删是软删，纯文本就算聊一年都没多少数据」）。
         # 不抹掉正文，只在行尾挂退休标记；`frag` 切片段时跳过标记行，`memdb` 对应标 deleted。
-        # 依据 `90` §4「本库没有容量压力，删等于丢」+ 她对自己写库的纪律「禁用 DELETE，一律 UPDATE status」。
+        # 依据 `903` §4「本库没有容量压力，删等于丢」+ 她对自己写库的纪律「禁用 DELETE，一律 UPDATE status」。
         if op == "retire":
             old = (item.get("old") or "").strip()
             if not old:
@@ -525,13 +552,13 @@ def selftest() -> int:
         else:
             print(f"  ✗ {name} {extra}")
 
-    # 2026-10-24：原来拿 references/89-… 当夹具，可 89/08/82 这些模块在分发骨架里
+    # 2026-10-24：原来拿 memory/813-… 当夹具，可 89/08/82 这些模块在分发骨架里
     # 本来就被 drop——换个库跑自测直接「自测跳过」return 1。改成自造最小模块，跟真实库解耦。
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        refs = root / "references"
+        refs = skeleton_dir(root)
         refs.mkdir(parents=True, exist_ok=True)
-        target = refs / "90-自测模块.md"
+        target = refs / "903-自测模块.md"
         target.write_text(
             "---\ntitle: 自测模块\nupdated: 2000-01-01\n---\n\n"
             "# 自测模块\n\n> 自测用，跑完即删。\n\n"
@@ -544,7 +571,7 @@ def selftest() -> int:
         before = len(read_lines(target))
         payload = [
             {
-                "module": "90",
+                "module": "903",
                 "op": "add",
                 "keys": ["自测", "程序写入"],
                 "section": "硬禁忌",
@@ -582,21 +609,21 @@ def selftest() -> int:
 
         bad = apply(
             root,
-            [{"module": "90", "op": "merge", "keys": ["甲"], "body": "正文", "ids": ["89.001", "89.002"]}],
+            [{"module": "903", "op": "merge", "keys": ["甲"], "body": "正文", "ids": ["813.001", "813.002"]}],
             today,
             dry=True,
         )
         check("op=merge 被明确拒绝", bad["ok"] is False and bad["errors"][0]["field"] == "op")
         weight = apply(
             root,
-            [{"module": "90", "op": "weight", "keys": ["甲"], "body": "正文"}],
+            [{"module": "903", "op": "weight", "keys": ["甲"], "body": "正文"}],
             today,
             dry=True,
         )
         check("op=weight 被明确拒绝", weight["ok"] is False and weight["errors"][0]["field"] == "op")
         missing = apply(
             root,
-            [{"module": "90", "op": "add", "keys": ["甲"], "body": "正文", "section": "不存在的节"}],
+            [{"module": "903", "op": "add", "keys": ["甲"], "body": "正文", "section": "不存在的节"}],
             today,
             dry=True,
         )
@@ -619,16 +646,16 @@ def selftest() -> int:
 
         snap = target.read_bytes()
         dry_res = apply(root, normalized + [
-            {"module": "90", "op": "add", "keys": ["乙"], "section": "硬禁忌", "body": "另一条也要能进"}
+            {"module": "903", "op": "add", "keys": ["乙"], "section": "硬禁忌", "body": "另一条也要能进"}
         ], today, dry=True)
         check("--dry 一条都不落盘", dry_res["ok"] is True and target.read_bytes() == snap)
 
         atomic = apply(
             root,
             [
-                {"module": "90", "op": "add", "keys": ["丙"], "section": "硬禁忌", "body": "原子性好的这条"},
-                {"module": "90", "op": "merge", "keys": ["丁"], "body": "原子性坏的这条",
-                 "ids": ["90.001", "90.002"]},
+                {"module": "903", "op": "add", "keys": ["丙"], "section": "硬禁忌", "body": "原子性好的这条"},
+                {"module": "903", "op": "merge", "keys": ["丁"], "body": "原子性坏的这条",
+                 "ids": ["903.001", "903.002"]},
             ],
             today,
             dry=False,
@@ -646,14 +673,14 @@ def selftest() -> int:
         # 说明/前言时也要插在分隔线下面，不许退回文件末尾。
         cl_dir = root / "references"
         cl_dir.mkdir(parents=True, exist_ok=True)
-        cl_path = cl_dir / "变更日志.md"
+        cl_path = cl_dir / "921.md"
         cl_pad = [f"| 旧行 {i} | x | y | z |" for i in range(45)]
         cl_lines = ["# 变更日志", "", "| 日期 | 文件 | 改动 | 触发 |",
                     "| --- | --- | --- | --- |"] + cl_pad
         cl_path.write_text("\n".join(cl_lines), encoding="utf-8", newline="")
         check(
             "表头超过 40 行仍插对位（A1）",
-            changelog_row(root, today, "`_待确认.md`", "只改待确认的说明") is True
+            changelog_row(root, today, "`922.md`", "只改待确认的说明") is True
             and next(
                 (i for i, ln in enumerate(read_lines(cl_path)) if "只改待确认的说明" in ln),
                 -1,
@@ -664,8 +691,8 @@ def selftest() -> int:
         two = apply(
             root,
             [
-                {"module": "90", "op": "add", "keys": ["戊"], "section": "硬禁忌", "body": "同批第一条"},
-                {"module": "90", "op": "add", "keys": ["己"], "section": "干活纪律", "body": "同批第二条"},
+                {"module": "903", "op": "add", "keys": ["戊"], "section": "硬禁忌", "body": "同批第一条"},
+                {"module": "903", "op": "add", "keys": ["己"], "section": "干活纪律", "body": "同批第二条"},
             ],
             today,
             dry=False,
@@ -687,17 +714,23 @@ def new_module(root: Path, spec: str, dry: bool) -> int:
     2026-10-24：新设备演练暴露的第一号卡点——memwrite 只接受白名单里已有的模块，
     而「建第一个自己的模块」是每个新用户做的第一件事，文档却让人手写 md。
     """
-    ref = root / "references"
-    m = re.match(r"^(\d{2}[a-z]?)-(.+)$", spec.strip())
+    m = re.match(r"^(\d{2,3}[a-z]?)-(.+)$", spec.strip())
     if not m:
-        print(f"[拒绝] 模块名要写成 NN-名称（例如 00-我是谁），收到 {spec!r}")
+        print(f"[拒绝] 模块名要写成 NNN-名称（例如 001-我是谁），收到 {spec!r}")
         return 1
     mod, name = m.group(1), m.group(2).strip().replace("/", "-").replace("\\", "-")
-    hits = sorted(p for p in ref.glob(f"{mod}-*.md") if not p.name.startswith("_"))
+    if mod.isdigit() and mod.endswith("0"):
+        print(f"[拒绝] {mod} 是骨架节点，只能由 tools/skeleton_nodes.py 生成")
+        return 1
+    hits: list[Path] = []
+    for base in module_dirs(root):
+        if base.is_dir():
+            hits += [p for p in sorted(base.glob(f"{mod}-*.md")) if not p.name.startswith("_")]
     if hits:
         print(f"[跳过] 模块 {mod} 已经存在：{hits[0].name}")
         return 0
-    path = ref / f"{mod}-{name}.md"
+    dest = target_dir(root, mod)
+    path = dest / f"{mod}-{name}.md"
     today = date.today().isoformat()
     text = (
         "---\n"
@@ -710,13 +743,15 @@ def new_module(root: Path, spec: str, dry: bool) -> int:
         "distribute: keep\n"
         "---\n\n"
         f"# {name}\n\n"
-        "> 这个模块是空的：按自己的情况往里加条目，一条只记一个事实，格式见 `_模板.md`。\n"
+        "> 这个模块是空的：按自己的情况往里加条目，一条只记一个事实，格式见 `926.md`。\n"
     )
+    shown = path.relative_to(root).as_posix()
     if dry:
-        print(f"[dry] 会新建 references/{path.name}（{len(text)} 字节）")
+        print(f"[dry] 会新建 {shown}（{len(text)} 字节）")
         return 0
+    dest.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
-    print(f"✅ 新建模块 references/{path.name}")
+    print(f"✅ 新建模块 {shown}")
     routes = root / "tools" / "routes.py"
     if routes.exists():
         r = subprocess.run([sys.executable, str(routes)], cwd=str(root),
@@ -750,7 +785,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--selftest", action="store_true", help="在临时目录里自测")
     ap.add_argument("--json", action="store_true", help="输出 JSON 结果")
     ap.add_argument("--new-module", metavar="NN-名字",
-                    help="新建一个自己的模块文件（如 00-我是谁），并登记路由表")
+                    help="新建一个自己的模块文件（如 801-我是谁），并登记路由表")
     args = ap.parse_args(argv)
 
     if args.selftest:
@@ -811,7 +846,7 @@ def main(argv: list[str]) -> int:
 
     if args.changelog:
         # 2026-10-24：同一批里连写同一个模块时，planned 会有多条同 path 的记录，
-        # 原来直接 join 出「`00-我是谁.md`、`00-我是谁.md`、`00-我是谁.md`」三个重名。
+        # 原来直接 join 出「`801-我是谁.md`、`801-我是谁.md`、`801-我是谁.md`」三个重名。
         seen = []
         for p in result["planned"]:
             name = p["path"].name
