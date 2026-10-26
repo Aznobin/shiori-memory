@@ -300,7 +300,7 @@ def main(argv: list[str] | None = None) -> int:
         warns.append(f"_巡检记录 有 {len(check_dates)} 行：只留最近 5 次，把旧行删掉")
 
     # 11) 开场那一步的三处分身必须一致（2026-10-21 她点出来的）
-    #     她原话「agent.md 没有校验，只改了 git 下的，没有改仓库工作区里的」——
+    #     她要求（原话已移除）——
     #     同一条规矩存在三处：本库 templates/AGENTS.md（setup.py 生成用的正源）、
     #     references/91a 骨架（发给别人的文档）、工作区 AGENTS.md（每轮真注入的那份）。
     #     只改一处 = 另外两处悄悄过期，而且过期那份正好是真正生效的。

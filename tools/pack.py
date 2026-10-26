@@ -356,6 +356,28 @@ def main() -> int:
             write(refs / "89-语气与交流.md", sanitize(pub89.read_text(encoding="utf-8")))
             print("  语气模块：包里放模板版 references/89-语气与交流.md（开局必读）")
 
+    # 2026-10-26 P1-C（她定的）：references/ 改成公开白名单，白名单外默认不进 dist。
+    # 只留：公开模板语气 89（上面刚生成）、90–99 系统区（含 91a/92a/93a/96a/97a）、
+    # _模板.md、_路由详表.md、CATALOG.md（这两份索引随后按白名单重建）。
+    # 私人模块（00–88、08a、12a/12b、21a/21b、变更日志、_待确认、_巡检记录、
+    # _合并候选、_复核清单、_表情包清单…）一律在包内删掉，不靠 frontmatter 黑名单。
+    PUBLIC_REF_FIXED = {"89-语气与交流.md", "CATALOG.md", "_模板.md", "_路由详表.md"}
+    # 2026-10-26 她定的：99-架构大纲 是内部总图（待办、决策、提交号太多），不进公开包。
+    PUBLIC_REF_EXCLUDE = {"99-架构大纲.md"}
+    if ref_target.is_dir():
+        removed_refs = []
+        for f in sorted(ref_target.glob("*.md")):
+            if f.name in PUBLIC_REF_EXCLUDE:
+                f.unlink()
+                removed_refs.append(f.name)
+                continue
+            if f.name in PUBLIC_REF_FIXED or re.match(r"^9[0-9][a-z]?-", f.name):
+                continue
+            f.unlink()
+            removed_refs.append(f.name)
+        if removed_refs:
+            print(f"   references 白名单外剔除 {len(removed_refs)} 个（示例：{', '.join(removed_refs[:3])}）")
+
     # templates/AGENTS.md 是本机的规则版（硬塞层 + 个人规则），给别人必须换成空骨架版
     pub = root / "framework-public" / "public-AGENTS.md"
     if pub.exists():
@@ -566,6 +588,24 @@ def main() -> int:
                 print("   路由表已填入包根 AGENTS.md（ROUTES 块）")
         except Exception as exc:
             print(f"   ⚠ 路由表没填上：{type(exc).__name__}: {exc}")
+
+    # 2026-10-26 她定的：公开包不能带她的原话。dist 里所有 .md/.py/.json/.txt
+    # 按行把 `她要求（原话已移除）` / `她要求（原话已移除）` 整段换成中性说明，源库正文不动。
+    quote_re = re.compile(r"她(?:的)?原话「[^」\r\n]{1,200}」")
+    quote_total = 0
+    for qp in sorted(target.rglob("*")):
+        if not qp.is_file() or qp.suffix.lower() not in (".md", ".py", ".json", ".txt"):
+            continue
+        raw_q = qp.read_text(encoding="utf-8", errors="replace")
+        new_q, n_q = quote_re.subn("她要求（原话已移除）", raw_q)
+        if n_q:
+            write(qp, new_q)
+            quote_total += n_q
+            print(f"   原话脱敏 {qp.relative_to(target).as_posix()}:{n_q}")
+    if quote_total == 0:
+        print("   原话脱敏：0 处（未发现 `她要求（原话已移除）` / `她要求（原话已移除）`）")
+    else:
+        print(f"   原话脱敏合计：{quote_total} 处")
 
     write(target / "VERSION", ver + "\n")
     manifest = "\n".join([

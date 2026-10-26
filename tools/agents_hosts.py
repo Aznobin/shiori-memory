@@ -10,7 +10,7 @@
   python tools/agents_hosts.py --hosts A,B  # 多台一起改时，把 A 的规则并进 B（同一段规则同步到所有主机）
 
 为什么要有这个（2026-10-22 她提的）：
-  她原话「skill中存三个，一个框架，一个笔记本一个itx，然后要改一起改」。
+  她要求（原话已移除）。
   `AGENTS.md` 分三份：`templates/AGENTS.md` 是空框架（给人起步用），
   `templates/hosts/<本机名>.md`（笔记本）与 `templates/hosts/<host>.md`（台式 ITX）是两台机器的完整版，
   全在 git 里；改规则时三份一起改，换机器只要跑一次本脚本把对应那份铺下去。
