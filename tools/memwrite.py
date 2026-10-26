@@ -225,7 +225,7 @@ def changelog_row(root: Path, today: str, files: str, summary: str) -> bool:
     lines, crlf = read_doc(path)
     row = f"| {today} | {files} | {summary} | 程序写入（`tools/memwrite.py`） |"
     pos = None
-    for i, line in enumerate(lines[:40]):
+    for i, line in enumerate(lines):
         if TABLE_SEP_RE.match(line.strip()):
             pos = i + 1
             break
@@ -616,6 +616,25 @@ def selftest() -> int:
             and after_atomic == snap
             and not any("原子性好的这条" in ln for ln in read_lines(target)),
             str(atomic["errors"]),
+        )
+
+        # 2026-10-26 批A-A1：变更日志表头不再只扫前 40 行——表头前有超过 40 行
+        # 说明/前言时也要插在分隔线下面，不许退回文件末尾。
+        cl_dir = root / "references"
+        cl_dir.mkdir(parents=True, exist_ok=True)
+        cl_path = cl_dir / "变更日志.md"
+        cl_pad = [f"| 旧行 {i} | x | y | z |" for i in range(45)]
+        cl_lines = ["# 变更日志", "", "| 日期 | 文件 | 改动 | 触发 |",
+                    "| --- | --- | --- | --- |"] + cl_pad
+        cl_path.write_text("\n".join(cl_lines), encoding="utf-8", newline="")
+        check(
+            "表头超过 40 行仍插对位（A1）",
+            changelog_row(root, today, "`_待确认.md`", "只改待确认的说明") is True
+            and next(
+                (i for i, ln in enumerate(read_lines(cl_path)) if "只改待确认的说明" in ln),
+                -1,
+            )
+            == 4,
         )
 
         two = apply(

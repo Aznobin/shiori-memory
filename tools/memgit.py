@@ -11,6 +11,7 @@
   python tools/memgit.py autosync ["说明"]    写记忆后自动跑：提交 → 拉 → 推，失败只提示
   python tools/memgit.py sync ["说明"]        同上，但要人工看结果
   python tools/memgit.py remote <url>         绑定远端（首次用）
+  python tools/memgit.py --selftest           自检提交说明兜底（临时仓库，不碰真库）
 """
 
 import datetime
@@ -231,20 +232,133 @@ def ensure_identity():
             git("config", "--local", key, want, check=False)
 
 
-def default_msg():
-    """优先用 变更日志 表头下第一行的「改动」列当说明，取不到就用时间戳"""
+def changed_files(root=None):
+    """相对仓库根的文件名列表（暂存区 + 未暂存，去重）。"""
+    root = root or ROOT
+    if not (root / ".git").exists():
+        return []
     try:
-        log = (ROOT / "references" / "变更日志.md").read_text(encoding="utf-8")
+        p = subprocess.run(
+            ["git", "status", "--porcelain", "-z"],
+            cwd=str(root), capture_output=True, timeout=10,
+        )
+    except Exception:
+        return []
+    if p.returncode != 0:
+        return []
+    text = p.stdout.decode("utf-8", "replace")
+    files = []
+    for entry in text.split("\0"):
+        if len(entry) < 4:
+            continue
+        name = entry[3:].strip().strip('"').replace("\\", "/")
+        if " -> " in name:
+            name = name.split(" -> ")[-1].strip()
+        if name and name not in files:
+            files.append(name)
+    return files
+
+
+def fallback_msg(root, files):
+    """变更日志里没有对应本次改动的行时用：文件名 + 一句摘要，不复用上一条说明。"""
+    names = [f.split("/")[-1] for f in files]
+    shown = "、".join(names[:3]) + ("…" if len(names) > 3 else "")
+    return f"记忆更新 {shown}（{len(names)} 个文件；无对应变更日志行）"
+
+
+def default_msg(root=None):
+    """变更日志里能对上本次改动就用它的「改动」列；对不上就用「文件名 + 一句摘要」兜底。"""
+    root = root or ROOT
+    files = changed_files(root)
+    try:
+        log_path = pathlib.Path(root) / "references" / "变更日志.md"
+        log = log_path.read_text(encoding="utf-8")
         rows = [ln for ln in log.splitlines() if ln.startswith("| 20")]
         if rows:
             cells = [c.strip() for c in rows[0].strip("|").split("|")]
             if len(cells) >= 3:
-                body = cells[2].split("；")[0].split("。")[0].replace("`", "").replace("*", "")
-                if body:
-                    return "记忆：" + (body[:38] + "…" if len(body) > 38 else body)
+                row_files = cells[1]
+                matched = any(
+                    f in row_files or f.split("/")[-1] in row_files for f in files
+                )
+                if matched or not files:
+                    body = cells[2].split("；")[0].split("。")[0].replace("`", "").replace("*", "")
+                    if body:
+                        return "记忆：" + (body[:38] + "…" if len(body) > 38 else body)
     except Exception:
         pass
+    if files:
+        return fallback_msg(root, files)
     return "记忆更新 " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+
+def selftest():
+    """临时仓库里验说明兜底：只写 `_待确认.md`（变更日志里没有它那一行）时，说明不能复用上一条。"""
+    import shutil
+    import tempfile
+
+    passes = 0
+    total = 0
+
+    def check(name, cond, extra=""):
+        nonlocal passes, total
+        total += 1
+        if cond:
+            passes += 1
+            print(f"  ✓ {name}")
+        else:
+            print(f"  ✗ {name} {extra}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        refs = root / "references"
+        refs.mkdir(parents=True, exist_ok=True)
+        (refs / "变更日志.md").write_text(
+            "| 日期 | 文件 | 改动 | 触发 |\n"
+            "| --- | --- | --- | --- |\n"
+            "| 2026-10-26 | `references/86-独立人格与立场.md` | 【上一条说明】不该被复用 | 自测 |\n",
+            encoding="utf-8",
+            newline="",
+        )
+        for cmd in (
+            ["git", "init", "-q", "-b", "main"],
+            ["git", "config", "--local", "user.name", "selftest"],
+            ["git", "config", "--local", "user.email", "selftest@local"],
+        ):
+            subprocess.run(cmd, cwd=str(root), capture_output=True, timeout=10)
+        (refs / "_待确认.md").write_text("待确认内容\n", encoding="utf-8", newline="")
+        subprocess.run(["git", "add", "-A"], cwd=str(root), capture_output=True, timeout=10)
+        (refs / "_待确认.md").write_text("待确认内容改了\n", encoding="utf-8", newline="")
+
+        files = changed_files(root)
+        check("能取到改动文件名", any(f.endswith("_待确认.md") for f in files), str(files))
+        msg = default_msg(root)
+        check(
+            "只写 _待确认.md 时说明与内容一致（不复用上一条）",
+            "_待确认.md" in msg and "上一条说明" not in msg,
+            msg,
+        )
+        check(
+            "兜底带文件数与「无对应变更日志行」",
+            "个文件" in msg and "无对应变更日志行" in msg,
+            msg,
+        )
+
+        (refs / "86-独立人格与立场.md").write_text("正文\n", encoding="utf-8", newline="")
+        subprocess.run(["git", "add", "-A"], cwd=str(root), capture_output=True, timeout=10)
+        matched = default_msg(root)
+        check("有对应变更日志行时仍用那行说明", "不该被复用" in matched, matched)
+
+        (refs / "变更日志.md").unlink()
+        subprocess.run(["git", "add", "-A"], cwd=str(root), capture_output=True, timeout=10)
+        no_log = default_msg(root)
+        check("变更日志缺失时也走文件名兜底", "_待确认.md" in no_log, no_log)
+
+        check("仓库没被自测改坏", (refs / "_待确认.md").read_text(encoding="utf-8") == "待确认内容改了\n")
+
+    shutil.rmtree(tmp, ignore_errors=True)
+    print(f"selftest {passes}/{total}")
+    return 0 if passes == total else 1
 
 
 def cmd_init(_args):
@@ -495,6 +609,8 @@ def cmd_check(_args):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in ("--selftest", "selftest"):
+        sys.exit(selftest())
     cmds = {
         "init": cmd_init,
         "remote": cmd_remote,

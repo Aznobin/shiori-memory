@@ -5,6 +5,7 @@
 用法：
   python tools/memory_check.py
   python tools/memory_check.py --root <技能根> --stale-days 30 --checkup-days 7
+  python tools/memory_check.py --selftest          自检 updated 引号链（临时目录，只读真库）
 
 等价于 tools/memory-check.ps1（PowerShell 版保留给只装了 PS 的机器）。
 退出码：0 无硬错误；1 有硬错误。
@@ -67,12 +68,99 @@ def frontmatter(text: str) -> str | None:
     return m.group(1) if m else None
 
 
-def main() -> int:
+def parse_updated(text: str) -> str:
+    """从 frontmatter 里取 updated 日期。
+
+    2026-10-26：引号链修好前 `tools/decay.py` 生成的 `_合并候选.md` 写成
+    `updated: "2026-10-24"`（带引号），下面原来只认裸日期的正则会把这种正常
+    写法判成「没有可解析的 updated 日期」并吐假 ❌。裸日期和带引号/单引号
+    两种写法都收，返回 `YYYY-MM-DD`；取不到返回空串。
+    """
+    m = re.search(
+        r"(?m)^updated:\s*[\"']?(\d{4}-\d{2}-\d{2}(?:[ T][\d:]+)?)[\"']?\s*$",
+        frontmatter(text) or "",
+    )
+    return m.group(1) if m else ""
+
+
+def _selftest() -> int:
+    """只验两件事：带引号的 updated 不再误报；真缺字段仍然报。
+
+    用临时目录跑真 `main()`，临时目录里没有 `_巡检记录.md`（体检日期那条会走
+    「文件不存在」分支，只给建议不给硬错），所以硬错误数可预期。
+    """
+    import contextlib
+    import io
+    import tempfile
+
+    passes = 0
+    total = 0
+
+    def check(name, cond, extra=""):
+        nonlocal passes, total
+        total += 1
+        if cond:
+            passes += 1
+            print(f"  ✓ {name}")
+        else:
+            print(f"  ✗ {name} {extra}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        refs = root / "references"
+        refs.mkdir(parents=True, exist_ok=True)
+        (root / "SKILL.md").write_text("# 临时\n", encoding="utf-8", newline="")
+        (refs / "_路由详表.md").write_text(
+            "| 大类 | 模块 |\n| --- | --- |\n| 测 | `31-带引号.md` |\n| 测 | `32-缺字段.md` |\n",
+            encoding="utf-8",
+            newline="",
+        )
+        (refs / "31-带引号.md").write_text(
+            "---\nid: \"31\"\ntitle: \"带引号\"\nkeywords:\n  - 自测\n"
+            "sensitive: \"false\"\nalways: \"false\"\nupdated: \"2026-10-24\"\n"
+            "distribute: keep\n---\n\n正文\n",
+            encoding="utf-8",
+            newline="",
+        )
+        (refs / "32-缺字段.md").write_text(
+            "---\ntitle: \"缺字段\"\nkeywords:\n  - 自测\n"
+            "sensitive: \"false\"\nalways: \"false\"\nupdated: 2026-10-24\n"
+            "distribute: keep\n---\n\n正文\n",
+            encoding="utf-8",
+            newline="",
+        )
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(["--root", str(root)])
+        out = buf.getvalue()
+        check(
+            "带引号的 updated 不再误报（A3）",
+            "31-带引号.md 没有可解析的 updated 日期" not in out,
+            out.strip().splitlines()[-3:],
+        )
+        check("裸日期照旧能解析", "32-缺字段.md 没有可解析的 updated 日期" not in out)
+        check("真缺字段仍然报硬错", "32-缺字段.md frontmatter 缺 id" in out and rc == 1)
+        check("带引号那篇不产生硬错", "31-带引号.md frontmatter 缺" not in out)
+
+        check("解析函数直接认两种写法", parse_updated("---\nupdated: 2026-01-02\n---\n") == "2026-01-02"
+              and parse_updated("---\nupdated: \"2026-01-02\"\n---\n") == "2026-01-02"
+              and parse_updated("---\nupdated: '2026-01-02'\n---\n") == "2026-01-02"
+              and parse_updated("---\ntitle: 没有日期\n---\n") == "")
+
+    print(f"selftest {passes}/{total}")
+    return 0 if passes == total else 1
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=str(DEFAULT_ROOT))
     ap.add_argument("--stale-days", type=int, default=30)
     ap.add_argument("--checkup-days", type=int, default=7)
-    args = ap.parse_args()
+    ap.add_argument("--selftest", action="store_true")
+    args = ap.parse_args(argv)
+    if args.selftest:
+        return _selftest()
 
     root = Path(args.root).expanduser()
     refs = root / "references"
@@ -101,7 +189,8 @@ def main() -> int:
     route_files: list[str] = []
     for row in re.findall(r"(?m)^\|\s*([^|]*?)\s*\|", route_text):
         for name in re.findall(r"`([^`]+)`", row):
-            if re.match(r"^\d{2}[a-z]?-", name) or name in ("_待确认", "变更日志", "_复核清单", "_巡检记录"):
+            # `_表情包清单.md` 是 `_` 开头的结构件、已在 `_路由详表.md` 登记，名字不匹配 \d{2}[a-z]?- 规则，单独白名单
+            if re.match(r"^\d{2}[a-z]?-", name) or name in ("_待确认", "变更日志", "_复核清单", "_巡检记录", "_表情包清单"):
                 route_files.append(name + ".md")
 
     module_files = [
@@ -146,16 +235,16 @@ def main() -> int:
         else:
             warns.append(f"{name} {n} 行（建议 ≤120）：按 83 §6 拆分")
 
-    # 4) updated 新鲜度
+    # 4) updated 新鲜度（2026-10-26：引号链修好——裸日期和 `"2026-10-24"` 都收，见 parse_updated）
     for name in module_files:
-        m = re.search(r"(?m)^updated:\s*(\d{4}-\d{2}-\d{2})", read(refs / name))
-        if not m:
+        stamp = parse_updated(read(refs / name))
+        if not stamp:
             issues.append(f"{name} 没有可解析的 updated 日期")
             continue
         try:
-            d = datetime.strptime(m.group(1), "%Y-%m-%d")
+            d = datetime.strptime(stamp[:10], "%Y-%m-%d")
         except ValueError:
-            issues.append(f"{name} updated 日期格式不对: {m.group(1)}")
+            issues.append(f"{name} updated 日期格式不对: {stamp}")
             continue
         age = (today - d).days
         if age > args.stale_days:

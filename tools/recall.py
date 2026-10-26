@@ -51,6 +51,13 @@ REL_KEEP = 0.35  # 低于榜首分数 35% 的丢掉：宁缺毋滥
 OFF = os.environ.get("MEMORY_RECALL_OFF", "").strip() not in ("", "0", "false", "False")
 QUERY_MAX_CHARS = env_num("MEMORY_RECALL_QUERY_CHARS", 600, int)
 
+# 元规则模块降权（2026-10-26 她定）：闲聊查询里 90-99 这些讲「记忆库自己怎么修」的行
+# 会靠「记忆/库/检索」这些字抢前排，把真话题挤掉。非维护查询里乘一个权重。
+META_W = env_num("MEMORY_RECALL_META_W", 0.2)
+META_DOCS = {"90", "91", "91a", "92", "93", "95", "97", "97a", "98", "99", "21"}
+MAINT_WORDS = ("检索", "打分", "片段", "hook", "索引", "frag", "memdb", "recall", "注入",
+               "巡检", "体检", "骨架", "打包", "分发", "评测", "同义词", "词库", "权重", "降权", "命中")
+
 # 这些模块永远不自动注入。
 # 注意 memdb 的 docs.id 是裸编号（'10' / '22'），写成 '10-健康' 会恒不命中、
 # 让敏感模块静默漏进上下文（2026-10-21 审计 H2 实测：搜「睡眠」直接返回 [10:11]）。
@@ -322,6 +329,9 @@ def retrieve(query, k=None):
                 continue
             line, text, hits = hit
             s = mod_score if (hits or module_id in exempt) else mod_score * 0.25
+            low_q = (query or "").lower()
+            if str(module_id) in META_DOCS and not any(w in low_q for w in MAINT_WORDS):
+                s = s * META_W
             rows.append((round(s, 3), module_id, line, text))
         rows.sort(key=lambda r: -r[0])
     out = []

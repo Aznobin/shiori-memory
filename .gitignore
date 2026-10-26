@@ -28,3 +28,4 @@ PACKINFO.txt
 # 机器状态与私人题库
 state/decay.json
 tools/frag_bench.json
+state/*.py

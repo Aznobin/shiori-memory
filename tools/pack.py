@@ -255,6 +255,9 @@ def main() -> int:
     # memory.config.json 里的 excludeDirs 会整个覆盖上面的默认值，所以这里再并一次，不管配置怎么写都排除。
     ex_dirs.add("state")
     ex_dirs.add(".framework")  # framework.py --build 的 worktree，里面是另一个分支的整棵树
+    # 2026-10-26：表情包图库（meme-packs/ 里的 441 张图 + index.db）是本地资源，
+    # 进发行包体积翻十倍；换机靠记忆库 git 同步 + tools/meme_pack_deploy.ps1 建链接。
+    ex_dirs.add("meme-packs")
     ex_files = set(pack_cfg.get("excludeFiles") or [".style_override.json", "memdb.sqlite3"])
     ex_files.add("memory.config.json")
 

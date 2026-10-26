@@ -26,6 +26,11 @@ from datetime import date
 from difflib import SequenceMatcher
 from pathlib import Path
 
+try:  # Windows 控制台默认 GBK，自检里的 ✓ / ✗ 会 UnicodeEncodeError（2026-10-26 踩到）
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 ROOT = Path(__file__).resolve().parent.parent
 INDEX = ROOT / "fragments" / "index.json"
 STATE = ROOT / "state" / "decay.json"
@@ -253,7 +258,9 @@ def _pairs_doc(today: date | None = None) -> tuple[str, dict]:
         'sensitive: "false"',
         'always: "false"',
         'maintain_only: "true"',
-        f'updated: "{day}"',
+        # 2026-10-26 引号链：日期不裹引号（`_合并候选.md` 是 decay.py 自己重写的生成物，
+        # 带引号会被 memory_check 的 updated 正则判成「没有可解析的 updated 日期」）
+        f'updated: {day}',
         "distribute: drop",
         "---",
         "",
@@ -345,16 +352,51 @@ def show(state: dict) -> None:
         print("  最老的三个：" + "、".join(f"{i['days']} 天（recency {i['recency']}）" for i in aged))
 
 
+def _selftest() -> int:
+    """验引号链：`--pairs` 生成的 frontmatter 里 `updated` 不带引号，且体检能解析。"""
+    passes = 0
+    total = 0
+
+    def check(name, cond, extra=""):
+        nonlocal passes, total
+        total += 1
+        if cond:
+            passes += 1
+            print(f"  ✓ {name}")
+        else:
+            print(f"  ✗ {name} {extra}")
+
+    text = pairs_markdown(date(2026, 1, 2))
+    head = text.split("---", 2)[1] if text.startswith("---") else text
+    check("frontmatter 有 updated 行", "updated: 2026-01-02" in head, head)
+    check("updated 不带引号（A3）", 'updated: "2026-01-02"' not in head)
+
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from memory_check import parse_updated  # noqa: E402
+
+        check("memory_check 能解析这份 frontmatter", parse_updated("---\n" + head + "\n---\n") == "2026-01-02")
+    except Exception as exc:  # 体检脚本改名时不当哑巴
+        check("memory_check 能解析这份 frontmatter", False, repr(exc))
+
+    print(f"selftest {passes}/{total}")
+    return 0 if passes == total else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="冷热分层与合并候选（只读侧）")
     ap.add_argument("--pairs", action="store_true", help="只出 references/_合并候选.md")
     ap.add_argument("--show", action="store_true", help="只打印统计，不写 state")
+    ap.add_argument("--selftest", action="store_true", help="自检 --pairs 的 updated 引号链（不写盘）")
     ap.add_argument(
         "--tick",
         action="store_true",
         help="结算一次冷热状态（这是默认动作，留着只是为了跟文档/流程图里的写法对齐）",
     )
     args = ap.parse_args(argv)
+
+    if args.selftest:
+        return _selftest()
 
     if args.pairs:
         path, stats = write_pairs()
