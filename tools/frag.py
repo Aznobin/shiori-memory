@@ -473,16 +473,17 @@ def build() -> int:
             ttl = title or mod_title
             ann_meta = {"frag": frag_id, "module": mod_id, "module_title": mod_title,
                         "title": ttl, "keywords": []}
-            auto_cap, cap_needs_human = annotate.make_caption(text)
+            auto_cap, _auto_needs_human = annotate.make_caption(text)
             if not auto_cap:                       # 内容行都不可用时用片段标题兜底，别留空
                 auto_cap = annotate.fallback_caption(ttl)
-                cap_needs_human = True
             auto_kws = annotate.make_keywords(ann_meta, text, generic, mod_kw_list, ANN_STATS)
             merged = annotate.merge_override(
                 {"tag": annotate.tag_for(mod_id), "caption": auto_cap, "keywords": auto_kws},
                 spec_owners.get(seq - 1, {}))
             tag = merged["tag"]
             caption = merged["caption"]
+            # 待人工只留四种：空 / 短于 4 字 / 纯数字或纯时间 / 只有编号没内容词（2026-10-27 批 W）
+            cap_needs_human = annotate.needs_human(caption)
             kws = [str(k) for k in merged["keywords"]]
             ANN_STATS["fragments"] = ANN_STATS.get("fragments", 0) + 1
             if not caption:

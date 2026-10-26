@@ -115,6 +115,28 @@ def pure_path(s: str) -> bool:
     return len(re.findall(r"[\u4e00-\u9fff]", s)) < 2
 
 
+WEEK_TIME = re.compile(
+    r"^(?:周[一二三四五六日天]|星期[一二三四五六日天])?\s*"
+    r"\d{1,2}[:：]\d{2}(?:\s*[-~～至+]\s*\d{1,2}[:：]\d{2})*\s*$")
+NUMBER_ONLY = re.compile(r"^(?:[一二三四五六七八九十百]+|\d+)[、.．)）]\s*$|^#\d+\s*$")
+
+
+def needs_human(cap: str) -> bool:
+    """这段 caption 要不要人工看一眼（2026-10-27 批 W 收窄）。
+
+    只有四种算待人工：空 / 短于 4 字 / 纯数字或纯时间（含 `周日 21:45`）/ 只有编号没内容词。
+    标题兜底来的 caption 只要落在这四种之外就算合格。
+    """
+    s = str(cap or "").strip()
+    if not s:
+        return True
+    if len(s) < 4:
+        return True
+    if PURE_NUM.match(s) or is_time_only(s) or WEEK_TIME.match(s):
+        return True
+    return bool(NUMBER_ONLY.match(s))
+
+
 def table_cells(raw: str) -> list[str]:
     s = clean_line(raw)
     if "|" not in s:
