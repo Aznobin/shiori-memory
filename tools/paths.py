@@ -28,6 +28,32 @@ MODULE_RE = re.compile(r"^(\d{3}[a-z]?)(?:-.+)?\.md$")
 # 骨架区编号下界：>= 900 归 references/，其余归 memory/
 SKELETON_FLOOR = 900
 
+# 编号分区（2026-10-26 改口径，三位数）：片段 tag / 路由 / 检索共用一张表
+PARTITIONS: list[tuple[int, int, str]] = [
+    (0, 99, "身份背景"),
+    (100, 199, "日常状态"),
+    (200, 299, "学习技能"),
+    (300, 399, "项目工作"),
+    (400, 499, "人际称呼"),
+    (500, 599, "偏好口味"),
+    (600, 699, "约定"),
+    (700, 799, "隐私"),
+    (800, 899, "AI 人设"),
+    (900, 999, "骨架协议"),
+]
+
+
+def partition_tag(num: str) -> str:
+    """模块号 → 分区标签，形如 `"200-299 学习技能"`；号非法时返回 `"未分区"`。"""
+    m = re.match(r"^(\d+)", str(num).strip())
+    if not m:
+        return "未分区"
+    n = int(m.group(1))
+    for lo, hi, name in PARTITIONS:
+        if lo <= n <= hi:
+            return f"{lo:03d}-{hi:03d} {name}"
+    return "未分区"
+
 
 def _num_of(path: Path) -> str | None:
     m = MODULE_RE.match(path.name)
