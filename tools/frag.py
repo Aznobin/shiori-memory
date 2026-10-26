@@ -116,6 +116,8 @@ def parse_front(text: str) -> tuple[dict, list[str]]:
         i += 1
     if kw_list:
         meta["keywords"] = " ".join(kw_list)
+        # 列表原样留一份：调用方需要逐条关键词，别拿拼成一行的那串再拆（2026-10-27 批 V）
+        meta["_keywords_list"] = kw_list  # type: ignore[assignment]
     return meta, lines[i + 1:]
 
 
@@ -408,7 +410,9 @@ def build() -> int:
 
     files = sorted(p for p in module_paths() if _sliceable(p))
     for path in files:
-        meta, body = parse_front(path.read_text(encoding="utf-8"))
+        raw_text = path.read_text(encoding="utf-8")
+        meta, body = parse_front(raw_text)
+        kw_list = meta.get("_keywords_list") or []
         mod_id = str(meta.get("id") or path.name.split("-")[0])
         mod_id = mod_id.strip('"')
         # 退休行（软删，2026-10-24）：正文留在 md 里可追溯，但不进片段、不被检索命中。
@@ -426,8 +430,7 @@ def build() -> int:
         weight = "main" if mod_id in MAIN_MODULES else "second"
         sensitive = (mod_id in SENSITIVE_MODULES) or meta.get("sensitive", "false").lower() == "true"
         distribute = meta.get("distribute", "keep")
-        mod_kw = tokens_of(" ".join(
-            k.strip() for k in meta.get("keywords", "").splitlines() if k.strip()))
+        mod_kw = tokens_of(" ".join(kw_list))
         parts_raw = split_paragraphs(raw_body, whole=mod_id in WHOLE_MODULES)
         rel = path.relative_to(ROOT).as_posix()
         line_dates = cached_line_dates(rel, raw_body, date_cache)
@@ -451,7 +454,9 @@ def build() -> int:
             owner = anchor_owner(spec_idx, stripped, spans)
             if owner is not None:
                 spec_owners.setdefault(owner, {}).update(spec)
-        mod_kw_list = [k.strip().strip('"') for k in str(meta.get("keywords", "")).splitlines() if k.strip()]
+        # 模块 frontmatter 的 keywords 由 parse_front 拼成了一行，这里用原文行取列表项，
+        # 免得整串当成一个词写进片段（2026-10-27 批 V 修的串词 bug）
+        mod_kw_list = list(kw_list)
         generic = annotate.generic_tokens(
             [{"title": t or mod_title, "module_title": mod_title, "keywords": [], "module": mod_id}
              for t, _lines in parts], mod_kw_list)
