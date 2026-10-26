@@ -125,6 +125,27 @@ def _errtail(p, n: int = 160) -> str:
     return lines[-1][:n] if lines else f"exit {p.returncode}（git 没有输出）"
 
 
+def _why(p) -> str:
+    """把 git 的失败原文归成一句准话（2026-10-27 批 H）。
+
+    改这行的原因：`cmd_autosync` 原来不管什么原因都印「（离线？）」，把
+    「远端有本地没有的提交 / rebase 撞冲突 / 认证没过」全糊成网络问题，
+    照着提示去查网络只会白跑。分类只看 git 的输出，不猜。
+    """
+    low = ((p.stderr or "") + (p.stdout or "")).lower()
+    if any(k in low for k in ("could not resolve host", "unable to access", "failed to connect",
+                              "connection refused", "network is unreachable", "timed out",
+                              "operation timed out", "proxy")):
+        return "网络不通或代理没起（连不上远端）"
+    if "conflict" in low or "patch failed" in low or "could not apply" in low:
+        return "rebase 撞了冲突，要人工处理"
+    if any(k in low for k in ("non-fast-forward", "fetch first", "rejected", "behind the remote")):
+        return "远端有本地没有的提交（非快进），得先拉"
+    if any(k in low for k in ("authentication", "permission denied", "publickey", "invalid username")):
+        return "认证没过（密钥或权限）"
+    return "原因见下"
+
+
 _SSH_CACHE = None
 
 
@@ -543,21 +564,23 @@ def cmd_pull(_args):
 def cmd_autosync(args):
     """写完记忆立刻提交并推送；任何一步失败都只提示，不影响对话"""
     if not has_repo():
+        print("autosync：这里不是 git 仓库，没提交也没推送（跳过）")
         return
     remotes = git("remote", check=False).stdout.strip()
     do_commit(args[0] if args else default_msg())
     if "origin" not in remotes:
+        print("autosync：没绑 origin 远端，已提交到本地，跳过推送")
         return
     pull = git_net("pull", "--rebase", "--autostash", "origin", "main",
                    timeout=PULL_TIMEOUT, budget=PULL_BUDGET)
     if pull.returncode != 0:
-        print("⚠️ 拉取没成，本地已经存好了，回头再推：" + _errtail(pull))
+        print(f"⚠️ 拉取没成（{_why(pull)}），本地已提交但还没推：" + _errtail(pull))
         return
     push = git_net("push", "origin", "main")
     if push.returncode != 0:
-        print("⚠️ 推送失败（离线？），本地已提交，回头跑一次 sync：" + _errtail(push))
+        print(f"⚠️ 推送没成（{_why(push)}），本地已提交但还没推：" + _errtail(push))
         return
-    print("已推送")
+    print("已推送（本地提交已进 origin/main）")
 
 
 def cmd_check(_args):

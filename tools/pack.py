@@ -697,22 +697,27 @@ def main() -> int:
     # 这里再兜一层，谁写回去也会在包里被抹掉。
     # 注：pack.py 里原本没有 EXTRA_SCRUB（那是 framework.py 的名字替换表，语义不同），
     # 所以这里新建一张纯串表，跟着同一次脱敏跑。
+    # 2026-10-27 批 H：这张表会把自己抹了——终验四在 dist 的 tools/pack.py 里看到三条映射
+    # 的键都被换成了右边的值，映射变成自己到自己，兜底表等于失效。这张表在 pack.py
+    # 自身里是「定义」不是「引用」，所以纯串替换跳过 pack.py 这一个文件（正则脱敏照跑）。
     plain_scrub = {
-        "本库没有容量压力": "本库没有容量压力",
-        "本库没有容量压力": "本库没有容量压力",
-        "本库没有容量压力": "本库没有容量压力",
+        "删是软删": "本库没有容量压力",
+        "纯文本就算聊一年都没多少数据": "本库没有容量压力",
+        "删等于丢": "本库没有容量压力",
     }
+    SELF_REL = "tools/pack.py"
     quote_total = 0
     for qp in sorted(target.rglob("*")):
         if not qp.is_file() or qp.suffix.lower() not in (".md", ".py", ".json", ".txt"):
             continue
         raw_q = qp.read_text(encoding="utf-8", errors="replace")
         new_q, n_q = quote_re.subn("她要求（原话已移除）", raw_q)
-        for old_s, new_s in plain_scrub.items():
-            hits_s = new_q.count(old_s)
-            if hits_s:
-                new_q = new_q.replace(old_s, new_s)
-                n_q += hits_s
+        if qp.relative_to(target).as_posix() != SELF_REL:
+            for old_s, new_s in plain_scrub.items():
+                hits_s = new_q.count(old_s)
+                if hits_s:
+                    new_q = new_q.replace(old_s, new_s)
+                    n_q += hits_s
         if n_q:
             write(qp, new_q)
             quote_total += n_q

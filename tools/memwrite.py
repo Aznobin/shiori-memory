@@ -590,7 +590,12 @@ def selftest() -> int:
         lines = read_lines(target)
         check("行数 +2", len(lines) == before + 2, f"{before} → {len(lines)}")
         check("正文在文件里", any("自测专用条目" in ln for ln in lines))
-        check("frontmatter updated 已改", f"updated: {today}" in "\n".join(lines[:40]))
+        # 2026-10-27 批 H：原来只扫前 40 行判 `updated:`——frontmatter 一旦超过 40 行，
+        # 那条假 ❌ 就与写入结果无关。改成按 frontmatter 的闭合 `---` 取块再判。
+        check(
+            "frontmatter updated 已改",
+            f"updated: {today}" in "\n".join(lines[:frontmatter_end(lines)]),
+        )
         bounds = section_bounds(lines, "硬禁忌")
         inside = False
         if bounds:
@@ -686,6 +691,36 @@ def selftest() -> int:
                 -1,
             )
             == 4,
+        )
+
+        # 2026-10-27 批 H：50 行 frontmatter 的样本——`updated:` 落在第 48 行，
+        # 旧写法 `lines[:40]` 会假 ❌（写入其实成功了）。按 frontmatter 块判必须看得出。
+        long_lines = ["---", "title: 长头模块"] + [f"kw{i}: 占位" for i in range(1, 46)]
+        long_lines += ["updated: 2000-01-01", "---", "", "# 长头模块", "",
+                       "## 硬禁忌", "", "- 旧条目", ""]
+        long_target = refs / "904-长头模块.md"
+        long_target.write_text("\n".join(long_lines), encoding="utf-8", newline="")
+        long_res = apply(
+            root,
+            [{"module": "904", "op": "add", "keys": ["长头条目"], "section": "硬禁忌",
+              "body": "长头也要能写进去"}],
+            today,
+            dry=False,
+        )
+        long_read = read_lines(long_target)
+        fm_end = frontmatter_end(long_read)
+        check(
+            "样本本身能暴露旧写法（updated 落在第 40 行之后）",
+            fm_end > 40 and f"updated: {today}" not in "\n".join(long_read[:40]),
+            f"闭合行={fm_end}",
+        )
+        check(
+            f"50 行 frontmatter 仍按块判 updated（H3，闭合行 {fm_end}）",
+            long_res["ok"] is True
+            and fm_end > 40
+            and f"updated: {today}" in "\n".join(long_read[:fm_end])
+            and "长头也要能写进去" in "\n".join(long_read),
+            str(long_res.get("errors")),
         )
 
         two = apply(

@@ -62,6 +62,36 @@ ROUTES: list[tuple[str, str, str, str]] = [
 ]
 
 
+# 元规则模块（2026-10-26 她定）：讲「记忆库自己怎么修」的模块，非维护查询里降权。
+# 2026-10-27 批 H：这串原来写死在 `tools/recall.py:122`，两位→三位迁移时靠人肉补，
+# 补漏了就是「列表悄悄过期、降权规则静默失效」。现在挪到这里做单一事实源——
+# 选这里不选 frontmatter 的理由：它是**打分口径**（同一批编号在别处还要按大类分组用），
+# 放路由表旁边和 ROUTES 一起看，改一个地方就够；frontmatter 标记会让「读一行 frontmatter」
+# 变成打分链路上的隐式依赖，反而更难查。
+META_MODULE_IDS: tuple[str, ...] = (
+    "903", "904", "905", "906", "908", "912", "915", "916", "917", "918", "304",
+)
+
+
+def meta_module_ids() -> set[str]:
+    """返回元规则模块集合；有编号在 ROUTES 表里找不到就直接报错退出。
+
+    只加校验，不改口径：集合内容与迁移前 `recall.py` 里那份完全一致。
+    重编号（例如两位→三位）之后若只改了 ROUTES 没改 META_MODULE_IDS，
+    旧编号会在这里当场炸掉，而不是让降权规则默默失灵。
+    """
+    known: set[str] = set()
+    for _, mods, _, _ in ROUTES:
+        known.update(re.findall(r"`(\d{2,3}[a-z]?)`", mods))
+    stale = [i for i in META_MODULE_IDS if i not in known]
+    if stale:
+        raise SystemExit(
+            "META_MODULE_IDS 过期：" + "、".join(stale) + " 不在 ROUTES 表里；"
+            "重编号后必须同步 tools/routes.py 的 META_MODULE_IDS"
+        )
+    return set(META_MODULE_IDS)
+
+
 def present_ids() -> dict[str, str]:
     """扫 `memory/` 与 `references/`，返回 {模块号或结构件名: 文件 stem}。
 

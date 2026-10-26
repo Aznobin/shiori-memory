@@ -40,6 +40,8 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+from routes import meta_module_ids  # noqa: E402
+
 # ---------------------------------------------------------------- 配置
 
 def env_num(name, default, cast=float):
@@ -117,8 +119,45 @@ def passes_exit(score, top=0.0):
 
 # 元规则模块降权（2026-10-26 她定）：闲聊查询里 90-99 这些讲「记忆库自己怎么修」的行
 # 会靠「记忆/库/检索」这些字抢前排，把真话题挤掉。非维护查询里乘一个权重。
+# 2026-10-27 批 H：编号不再写死在这里——单一事实源在 `tools/routes.py` 的
+# `META_MODULE_IDS`（和 ROUTES 表挨着，重编号只改一处），这里只负责导入 + 启动校验。
 META_W = env_num("MEMORY_RECALL_META_W", 0.2)
-META_DOCS = {"903", "904", "905", "906", "908", "912", "915", "916", "917", "918", "304"}
+META_DOCS = meta_module_ids()
+
+
+def _assert_meta_docs(ids: set[str]) -> None:
+    """启动断言：元规则集合里的编号必须真的存在，找不到就报错退出（2026-10-27 批 H）。
+
+    为什么要有这道闸：上一轮两位→三位迁移后，这串编号是靠人肉补的；漏一个不会报错，
+    只会让那几条降权规则静默失效，谁也不知道。现在优先拿 memdb 索引核对，索引没建
+    （分发包里首次运行）就退回扫模块文件——两种都是「当前真实存在的编号」，不是降级放行。
+    """
+    known: set[str] = set()
+    src = ""
+    db = Path(__file__).resolve().parent / "memdb.sqlite3"
+    if db.is_file():
+        try:
+            import memdb
+            con = memdb.connect()
+            known = {str(r[0]) for r in con.execute("SELECT id FROM docs")}
+            src = "memdb docs"
+        except Exception:
+            known = set()
+    if not known:
+        import routes
+        known = set(routes.present_ids())
+        src = "模块文件"
+    missing = sorted(i for i in ids if i not in known)
+    if missing:
+        print(
+            f"❌ META_DOCS 校验失败：{'、'.join(missing)} 不在当前索引里（核对来源：{src}）。"
+            "重编号后必须同步 tools/routes.py 的 META_MODULE_IDS。",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+
+_assert_meta_docs(META_DOCS)
 MAINT_WORDS = ("检索", "打分", "片段", "hook", "索引", "frag", "memdb", "recall", "注入",
                "巡检", "体检", "骨架", "打包", "分发", "评测", "同义词", "词库", "权重", "降权", "命中")
 
