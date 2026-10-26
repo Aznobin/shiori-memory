@@ -395,7 +395,7 @@ def main() -> int:
             stat["keep"] += 1
         write(file, sanitize(packed))
 
-    # 2026-701-24：ENTRY.md 是本机入口页（私库名、我自己的分类），framework 产物那边由
+    # 2026-10-24：ENTRY.md 是本机入口页（私库名、我自己的分类），framework 产物那边由
     # DROP_ROOT_FILES 剔掉，分发包漏了这条——桌面演练里它直接流出去了，还带着双重编码乱码。
     entry = target / "ENTRY.md"
     if entry.exists():
@@ -448,7 +448,14 @@ def main() -> int:
     if ref_target.is_dir():
         removed_refs = []
         for f in sorted(ref_target.glob("*.md")):
+            # 2026-10-27 批 M：白名单剔除的文件已经从 `stat` 里记过一次，这里要按它
+            # 原本的 distribute 值把计数退回来、改记到 drop，否则 PACKINFO 会写出
+            # 「保留 keep 13」而包里实际只有 12 个（真发生过：918 / 929）。
+            mode = front_field(read(f), "distribute", default_mode(f.stem))
             if f.name in PUBLIC_REF_EXCLUDE:
+                if mode in stat:
+                    stat[mode] -= 1
+                stat["drop"] += 1
                 f.unlink()
                 removed_refs.append(f.name)
                 continue
@@ -456,10 +463,23 @@ def main() -> int:
             # 踢出包（dist references 只剩节点目录）。改成兼容 2/3 位。
             if f.name in PUBLIC_REF_FIXED or re.match(r"^9\d{1,2}[a-z]?-", f.name):
                 continue
+            if mode in stat:
+                stat[mode] -= 1
+            stat["drop"] += 1
             f.unlink()
             removed_refs.append(f.name)
         if removed_refs:
             print(f"   references 白名单外剔除 {len(removed_refs)} 个（示例：{', '.join(removed_refs[:3])}）")
+
+        # 2026-10-27 批 M：PACKINFO 的计数按实际产物核一遍——白名单剔除之后
+        # 包里真留下的 references/*.md 必须正好等于 keep + blank + reset
+        # （`926`/`927` 两份索引不参与计数，跟上面统计口径保持一致）。
+        counted = [f for f in ref_target.glob("*.md") if f.name not in ("926.md", "927.md")]
+        if len(counted) != stat["keep"] + stat["blank"] + stat["reset"]:
+            raise SystemExit(
+                f"❌ references 计数与实际产物不符：包里 {len(counted)} 个，"
+                f"keep {stat['keep']} + blank {stat['blank']} + reset {stat['reset']}"
+            )
 
     # templates/AGENTS.md 是本机的规则版（硬塞层 + 个人规则），给别人必须换成空骨架版
     pub = root / "framework-public" / "public-AGENTS.md"
@@ -507,7 +527,7 @@ def main() -> int:
                 copied += 1
             persona_note = f"人格模板 {copied} 份（persona/）"
 
-    # 2026-701-24：927.md 是从主库复制过来的，里面列着 55 个模块（01 基本背景、10 健康、
+    # 2026-10-24：927.md 是从主库复制过来的，里面列着 55 个模块（01 基本背景、10 健康、
     # 12a 英语…全是私人内容）。进包必须按包里真实剩下的模块重建，只留 90–99 + 协议件。
     cat = ref_target / "927.md"
     if cat.exists():

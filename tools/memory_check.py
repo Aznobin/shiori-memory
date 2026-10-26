@@ -5,7 +5,7 @@
 用法：
   python tools/memory_check.py
   python tools/memory_check.py --root <技能根> --stale-days 30 --checkup-days 7
-  python tools/memory_check.py --selftest          自检 updated 引号链（临时目录，只读真库）
+  python tools/memory_check.py --selftest          自检 updated 引号链 + 坏日期检查（临时目录，只读真库）
 
 等价于 tools/memory-check.ps1（PowerShell 版保留给只装了 PS 的机器）。
 退出码：0 无硬错误；1 有硬错误。
@@ -32,6 +32,20 @@ DEFAULT_ROOT = ROOT
 
 # 内容模块在 `memory/`，骨架与协议件在 `references/`；`--root` 指向哪个库就扫哪个库。
 MODULE_EXCLUDE = ("926.md", "927.md", "925.md", "923.md", "928.md", "924.md")
+
+# 疑似编号迁移改坏日期（2026-10-27 批 M）：两位→三位替换那次把 `2026-10-26` 里的
+# `10`/`24` 当成模块号，写成了「年-三位模块号-日」这种坏串。这两种形状在正文里没有任何正当用途。
+# 本文件正文里不写坏串原文，否则这条检查会命中自己（下面注释里用 `2026-<三位>-26` 占位）。
+BAD_DATE_RE = re.compile(r"20\d{2}-\d{3}-\d{2}|20\d{2}-\d{2}-\d{3}")
+
+
+def bad_date_hits(path: Path) -> list[int]:
+    """返回文件里命中坏日期形状的行号（1 起）；读不到就当没有。"""
+    try:
+        text = read(path)
+    except OSError:
+        return []
+    return [i for i, line in enumerate(text.split("\n"), 1) if BAD_DATE_RE.search(line)]
 
 
 def _module_dirs(root: Path) -> list[Path]:
@@ -166,6 +180,35 @@ def _selftest() -> int:
               and parse_updated("---\nupdated: \"2026-01-02\"\n---\n") == "2026-01-02"
               and parse_updated("---\nupdated: '2026-01-02'\n---\n") == "2026-01-02"
               and parse_updated("---\ntitle: 没有日期\n---\n") == "")
+
+        # 坏日期检查（2026-10-27 批 M）：喂坏串必须报硬错并带行号，喂正常日期不许报。
+        # 坏串在这里拼出来，别写成字面量——否则这条检查会命中本文件自己。
+        bad_sample = "2026-" + "701" + "-26"
+        target = refs / "003-带引号.md"
+        clean_text = target.read_text(encoding="utf-8")
+        target.write_text(clean_text.rstrip("\n") + "\n- 坏日期示例：" + bad_sample + "\n", encoding="utf-8", newline="")
+        check("坏日期串被识别（年-三位-日）", len(bad_date_hits(target)) == 1, bad_date_hits(target))
+        check(
+            "好日期串不被误报",
+            not BAD_DATE_RE.search("2026-10-26") and not BAD_DATE_RE.search("updated: 2026-01-02"),
+        )
+        buf2 = io.StringIO()
+        with contextlib.redirect_stdout(buf2):
+            rc2 = main(["--root", str(root)])
+        out2 = buf2.getvalue()
+        check(
+            "坏日期进硬错且带文件名+行号",
+            "疑似编号迁移改坏日期" in out2 and "003-带引号.md:" in out2 and rc2 == 1,
+            out2.strip().splitlines()[-2:],
+        )
+        target.write_text(clean_text, encoding="utf-8", newline="")
+        buf3 = io.StringIO()
+        with contextlib.redirect_stdout(buf3):
+            rc3 = main(["--root", str(root)])
+        check(
+            "清掉坏串后不再报坏日期",
+            "疑似编号迁移改坏日期" not in buf3.getvalue() and rc3 == rc,
+        )
 
     print(f"selftest {passes}/{total}")
     return 0 if passes == total else 1
@@ -355,6 +398,20 @@ def main(argv: list[str] | None = None) -> int:
             warns.append("工作区 AGENTS.md 没有 CORE 托管块：§8 还是手抄的，跑 python tools/agents_sync.py")
         elif "<!-- ROUTES:BEGIN -->" not in ws_text:
             warns.append("工作区 AGENTS.md 没有 ROUTES 托管块：跑 python tools/agents_sync.py")
+
+    # 13) 疑似编号迁移改坏日期（2026-10-27 批 M 加，硬错）
+    #     两位→三位编号替换曾把 `2026-10-26` 里的 `10`/`24` 当模块号，写成 `2026-<三位>-26` 这类坏串；
+    #     它在正文里没有正当用途，命中就报硬错并把行号列出来。
+    scan_targets: list[Path] = [skill, *mods.values()]
+    for pattern in ("templates/**/*.md", "tools/**/*.py", "tools/**/*.mjs", "tools/**/*.ps1"):
+        scan_targets.extend(sorted(root.glob(pattern)))
+    bad_dates = [
+        f"{path.relative_to(root)}:{line_no}"
+        for path in dict.fromkeys(scan_targets)
+        for line_no in bad_date_hits(path)
+    ]
+    if bad_dates:
+        issues.append("疑似编号迁移改坏日期（YYYY-NNN-DD / YYYY-DD-NNN）: " + ", ".join(bad_dates))
 
     print()
     print(f"模块 {len(module_files)} 个 · SKILL.md {skill_lines} 行")

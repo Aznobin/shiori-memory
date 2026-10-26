@@ -559,7 +559,7 @@ def selftest() -> int:
     ok = True
     sample = "# 2026-10-24 今日\n- 装了 Node 22，顺手把 pnpm 也升了\n- 修好了 recall 的 `expand_query`，权重降到 0.45\n\n## 随手记\n今天试了下新的检索打分，效果还行\n"
     with tempfile.TemporaryDirectory() as td:
-        p = Path(td) / "2026-701-212-日记.md"
+        p = Path(td) / "2026-10-24-日记.md"
         p.write_text(sample, encoding="utf-8")
         blocks = split_blocks(p)
         assert blocks, "切块失败：一条都没切出来"
