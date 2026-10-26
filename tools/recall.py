@@ -758,7 +758,7 @@ def cmd_hook(a):
         save_state(st)
         return 0
 
-    # 工作区自带记忆库 → 不注本库（2026-10-24 她：「他会读过去，哪怕设置成工作区内修改」）
+    # 工作区自带记忆库 → 不注本库（2026-10-24 她要求（原话已移除））
     side, detail = workspace_library(cwd)
     if side in ("placeholder", "missing", "other"):
         return _skip("other-library", "%s:%s" % (side, detail[:60]))

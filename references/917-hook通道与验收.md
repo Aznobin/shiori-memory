@@ -104,7 +104,7 @@ relates_to: []
 
 ## 9. 「挂 hook 就会话崩溃」到底是谁干的（2026-10-22 查日志定案）
 
-她原话：「为什么每次挂hook就会会话崩溃呢，有规避方法吗」。翻遍 `%USERPROFILE%\.dsh\sessions\` 16 个会话逐条查 `turn/end`：
+她要求（原话已移除）。翻遍 `%USERPROFILE%\.dsh\sessions\` 16 个会话逐条查 `turn/end`：
 
 - **hook 命令失败本身不崩会话**：`session-0c06bffa` 里 11 次 `hook/invoked` 全败（9 次 `exitCode 3221225794` + 3 次 `exit 1`），它 turn 1～6 全是 `{kind:completed}`，一路聊到 turn 8。协议把失败记成 `decision: pass` **静默吞掉**，会话根本不知道。
 - **真崩只有 2 次，全是 `aborted: disposed`**，而且都是同一个原因：我拿 `plugin_manager set_plugin include:sandbox-policy enabled:false` 当热重载按钮，拆了 shell/sandbox 的依赖 fiber。见 §7 第 3 条。
@@ -119,7 +119,7 @@ relates_to: []
 4. 真要重启，挑她不在说话的时候（`idle.py` 那套静默门同理）；会话历史落在 `session.v4.jsonl.zstd` 里，重启不等于内容没了。
 5. 改完先 `python tools\hookcheck.py` 看退出码，再谈别的事——`exit 1` 是通道不通，`exit 2` 是通了没交付，都是 hook 自己的事，与会话稳定性无关。
 
-## 10. 钩子壳的备份（2026-10-23，她说「另一个电脑没装」）
+## 10. 钩子壳的备份（2026-10-23，她要求（原话已移除））
 
 - **「自写钩子」指的是 memory-recall 这一套**：她说的「就是hook」就是这条注入链，不是别的插件。核过 `~/.dsh/profiles/desktop/node_modules` 里 22 个 dsh 包，**全部**带 `repository` 指向 npm / GitHub，**没有本地自写插件包**；`cc-safety-net` 是第三方、`dsh-hooks-codex` / `dsh-hook-protocol` 是官方包，都不算自写。
 - **壳已进 git**：三份宿主壳 + 一段 DSH 挂载 YAML 拷进记忆库 `templates/hooks/`，跟仓库走，另一台电脑拉下来就有——

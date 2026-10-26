@@ -673,8 +673,13 @@ def main() -> int:
             print(f"   ⚠ 路由表没填上：{type(exc).__name__}: {exc}")
 
     # 2026-10-26 她定的：公开包不能带她的原话。dist 里所有 .md/.py/.json/.txt
-    # 按行把 `她要求（原话已移除）` / `她要求（原话已移除）` 整段换成中性说明，源库正文不动。
-    quote_re = re.compile(r"她(?:的)?原话「[^」\r\n]{1,200}」")
+    # 按行把她的原话整段换成中性说明，源库正文不动。
+    # 2026-10-27 批 D：老正则只认「原话」与「「」紧贴，`她要求（原话已移除）`、`她要求（原话已移除）`、
+    # `她要求（原话已移除）` 全漏网（验收实测 913:25 / 913:112 / 917:107 三处）。现在 `她` 与引号之间
+    # 允许 的 / 原话 / 说 / 括号 / 冒号 / 空白，引号支持 「」 与 『』，仍不跨行、内容 1–200 字。
+    quote_re = re.compile(
+        r"她(?:的)?(?:原话|说)?[）)】\]:：\s]*[「『][^」』\r\n]{1,200}[」』]"
+    )
     quote_total = 0
     for qp in sorted(target.rglob("*")):
         if not qp.is_file() or qp.suffix.lower() not in (".md", ".py", ".json", ".txt"):
@@ -686,7 +691,7 @@ def main() -> int:
             quote_total += n_q
             print(f"   原话脱敏 {qp.relative_to(target).as_posix()}:{n_q}")
     if quote_total == 0:
-        print("   原话脱敏：0 处（未发现 `她要求（原话已移除）` / `她要求（原话已移除）`）")
+        print("   原话脱敏：0 处（未发现她的原话引用）")
     else:
         print(f"   原话脱敏合计：{quote_total} 处")
 
