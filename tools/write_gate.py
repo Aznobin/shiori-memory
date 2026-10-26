@@ -4,7 +4,7 @@
 用法：
     python tools/write_gate.py payload.json     # 校验文件
     type payload.json | python tools/write_gate.py   # 校验 stdin
-    python tools/write_gate.py --selftest       # 自带 11 条样本自测
+    python tools/write_gate.py --selftest       # 自带 13 条样本自测（含批 B 两条规则）
 
 输入：JSON 数组，每项形如
     {"module": "89", "op": "add|merge|weight", "keys": ["…"], "body": "…",
@@ -38,13 +38,15 @@ REF = ROOT / "references"
 # 「禁用 DELETE，一律 UPDATE status」。理由必填，跟 source 一个逻辑。
 OPS = ("add", "replace", "retire")
 
-# source 四档（2026-10-24 shiori-old 定的，专治「会话里说话的人被默认当成库的主人」）：
+# source 五档（2026-10-24 shiori-old 定的，专治「会话里说话的人被默认当成库的主人」；
+# 2026-10-26 批 B 加 subagent 档，让「子智能体转述」在检索打分里有独立口径）：
 #   user-original    她本人原话，含她自己写下的文字（日记正文也算）
+#   subagent         子智能体 / teammate 写的记录，不是她本人原话
 #   test-transcript  测试 / 演练里的对话记录，说话的是测试员不是她
 #   sample           造出来的样本数据
 #   unknown          查过了、查不出来——必须同时给 note 说清为什么不知道
 # 没有 unknown 这档只有两种下场：被硬标成真的，或者被拒在门外继续烂在旧文件夹里。
-SOURCES = ("user-original", "test-transcript", "sample", "unknown")
+SOURCES = ("user-original", "subagent", "test-transcript", "sample", "unknown")
 # 按「是不是关于人的断言」定强制范围，不按模块白名单凑数：
 #   00/01/31 是人相关模块；11 也要，但它走行尾标（样本混在真日记里，模块级盖不住）。
 #   90–99 那批机制件豁免——它们的来源是代码和文档，不是人。
@@ -219,6 +221,14 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
             if len(norm_ids) != len(set(norm_ids)):
                 errors.append(err(index, "ids", "ids 里有重复的 frag id"))
 
+    # 日期锚点（2026-10-26 批 B）：add / replace 的正文条目必须带日期。
+    # 口径写死一种：缺 `date` 不拒收，自动补当天（ISO 格式），并标 `date_auto=True`，
+    # 写入端按这个日期在正文行尾补 `（YYYY-MM-DD）` 锚点。retire/replace 的 old 定位行
+    # 本身已经在库里，不重复补。
+    auto_date = ""
+    if _op_low in ("add", "replace") and not item.get("date"):
+        auto_date = date.today().isoformat()
+
     for field in ("date", "updated"):
         if field in item:
             bad = check_date(item[field], index, field)
@@ -238,6 +248,9 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
         normalized["ids"] = sorted(set(norm_ids))
     if norm_source:
         normalized["source"] = norm_source
+    if auto_date:
+        normalized["date"] = auto_date
+        normalized["date_auto"] = True
     for field in ("date", "updated"):
         if field in item:
             normalized[field] = item[field]
@@ -411,6 +424,64 @@ def selftest() -> int:
                 f"坏样本 {no}（{name}）没按预期被拒：ok={res.get('ok')} errors={errs}"
             )
             print(f"  ✗ 坏样本 {no}（{name}）没按预期被拒")
+    # 批 B 规则用例 ①：缺日期锚点 → 自动补当天，并真的落到正文行尾。
+    total += 1
+    today = date.today().isoformat()
+    probe = {
+        "module": pick("90", 0),
+        "op": "add",
+        "keys": ["日期锚点"],
+        "body": "批 B 日期锚点自测。",
+    }
+    res = validate([probe])
+    norm = (res.get("normalized") or [{}])[0]
+    try:
+        import memwrite
+        written = memwrite.body_with_marks(probe["body"], norm, today)
+    except Exception:
+        written = ""
+    if (
+        res.get("ok") is True
+        and norm.get("date") == today
+        and norm.get("date_auto") is True
+        and f"（{today}）" in written
+    ):
+        ok_count += 1
+        print(f"  ✓ 规则样本 1（缺日期锚点）自动补当天并落正文：{today}")
+    else:
+        failures.append(
+            f"规则样本 1 应自动补当天 {today} 并落正文：ok={res.get('ok')} normalized={norm} written={written!r}"
+        )
+        print("  ✗ 规则样本 1（缺日期锚点）没自动补当天")
+
+    # 批 B 规则用例 ②：低于出口阈的候选过一级闸、进日志，但不进上下文。
+    total += 1
+    try:
+        import recall
+        low = recall.ENTRY_SCORE + (recall.EXIT_SCORE - recall.ENTRY_SCORE) / 2
+        two_level = recall.passes_entry(low) and not recall.passes_exit(low)
+        card, fps = recall.build_card(
+            [(low, "90", 1, "低于出口阈的候选行，不该进上下文。")],
+            {"turn": 9, "seen": [], "recent": []},
+            "selftest",
+            no_random=True,
+        )
+        leaked = ("低于出口阈" in card) or bool(fps)
+    except Exception as exc:
+        two_level, leaked, low = False, True, "?"
+        print(f"  ! 规则样本 2 加载 recall 失败：{exc}")
+    if two_level and not leaked:
+        ok_count += 1
+        print(
+            f"  ✓ 规则样本 2（{low:.3f}）过一级 {recall.ENTRY_SCORE}、"
+            f"被二级 {recall.EXIT_SCORE} 挡住，只进日志"
+        )
+    else:
+        failures.append(
+            f"规则样本 2 应过一级、被二级挡住：two_level={two_level} leaked={leaked}"
+        )
+        print("  ✗ 规则样本 2（低于出口阈）没被挡住")
+
     print(f"selftest {ok_count}/{total}")
     if failures:
         for line in failures:

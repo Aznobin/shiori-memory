@@ -156,10 +156,16 @@ def section_bounds(lines: list[str], name: str) -> tuple[int, int] | None:
 # 因为 frag 切片只带正文，说明性文字在切片面前是流沙——标了才进上下文，只写文件头没用。
 # user-original 不标（默认真实）；unknown 靠 note 承载，不在正文里写黑话。
 SOURCE_MARKS = {
+    "subagent": "（子智能体记录）",
     "test-transcript": "（测试记录，非本人原话）",
     "sample": "（样本）",
     "unknown": "（来源不明）",
 }
+
+# 日期锚点（2026-10-26 批 B）：正文条目必须带日期，闸门缺 date 时自动补当天，
+# 这里把日期落到正文行尾（行尾已有任意 `（YYYY-MM-DD）` 就不重复挂）。
+DATE_ANCHOR_RE = re.compile(r"（\d{4}-\d{2}-\d{2}）")
+DATE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # 退休标记：软删的唯一可见痕迹（2026-10-24）。`frag.py` 切片段时按这个前缀整行跳过。
 RETIRE_MARK = "（已退休 "
@@ -169,6 +175,24 @@ def source_mark(source) -> str:
     if not isinstance(source, str):
         return ""
     return SOURCE_MARKS.get(source.strip(), "")
+
+
+def date_mark(value) -> str:
+    """把 YYYY-MM-DD 转成行尾日期锚点；不是合法 ISO 日期就返回空串。"""
+    text = str(value or "").strip()
+    if not DATE_ISO_RE.match(text):
+        return ""
+    return f"（{text}）"
+
+
+def body_with_marks(body: str, item: dict, today: str) -> str:
+    """正文 + 来源标记 + 日期锚点（已有日期锚点的正文不再追加）。"""
+    text = str(body or "")
+    marks = source_mark(item.get("source"))
+    stamp = item.get("date") or item.get("updated") or today
+    if not DATE_ANCHOR_RE.search(text):
+        marks += date_mark(stamp)
+    return text + marks
 
 
 def to_bullets(body: str) -> list[str]:
@@ -306,7 +330,7 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
                     }
                 )
                 continue
-            new_line = to_bullets(item["body"] + source_mark(item.get("source")))[0]
+            new_line = to_bullets(body_with_marks(item["body"], item, today))[0]
             new_line = re.sub(r"^(?:-|\*|\|)\s+", "", new_line, count=1)
             hit = hits[0]
             lead = re.match(r"^(\s*(?:-|\*|\|)\s+)", lines[hit])
@@ -379,7 +403,7 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
             )
             continue
 
-        bullets = to_bullets(item["body"] + source_mark(item.get("source")))
+        bullets = to_bullets(body_with_marks(item["body"], item, today))
 
         if already_there(lines, bullets):
             skipped.append({"index": index, "file": path.name, "reason": "同样的正文第一行已在文件里"})

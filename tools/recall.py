@@ -13,10 +13,15 @@
   python recall.py reset                    # 清掉状态（会话结束用）
 
 闸门（都可通过环境变量调）：
-  MEMORY_RECALL_EVERY     每 N 轮才自动注入一次，默认 2
-  MEMORY_RECALL_TTL       状态文件闲置多久自毁（秒），默认 1800（30 分钟）
-  MEMORY_RECALL_MAX       单次最多注入几条，默认 5
-  MEMORY_RECALL_MIN_SCORE 低于这个分数宁可不注入，默认 0.2
+  MEMORY_RECALL_EVERY      每 N 轮才自动注入一次，默认 2
+  MEMORY_RECALL_TTL        状态文件闲置多久自毁（秒），默认 1800（30 分钟）
+  MEMORY_RECALL_MAX        单次最多注入几条，默认 5
+  MEMORY_RECALL_RELEVANT   按需相关条数上限，默认 4（no-random 时退回 MAX）
+  MEMORY_RECALL_RANDOM_OLD 随机旧事条数，默认 1
+  MEMORY_RECALL_ENTRY_SCORE 一级闸门「命中」：低于它连候选都不进，默认 0.08
+  MEMORY_RECALL_EXIT_SCORE  二级闸门「敢说出口」：低于它不进上下文，默认 0.2
+  MEMORY_RECALL_MIN_SCORE   旧名，等价 EXIT_SCORE（向后兼容）
+  MEMORY_RECALL_NO_RANDOM=1 关掉随机旧事，回到旧行为（只取相关条）
   MEMORY_RECALL_OFF=1     一键关掉自动注入
 
 自毁：状态文件在临时目录，闲置超过 TTL 自动删除；会话结束调 reset 立刻删。
@@ -24,6 +29,7 @@
 import argparse
 import json
 import os
+import random
 import re
 import sys
 import tempfile
@@ -46,10 +52,68 @@ def env_num(name, default, cast=float):
 EVERY = env_num("MEMORY_RECALL_EVERY", 1, int)
 TTL = env_num("MEMORY_RECALL_TTL", 1800, int)
 MAX_N = env_num("MEMORY_RECALL_MAX", 5, int)
-MIN_SCORE = env_num("MEMORY_RECALL_MIN_SCORE", 0.2)
+RELEVANT_N = env_num("MEMORY_RECALL_RELEVANT", 4, int)
+RANDOM_OLD_N = env_num("MEMORY_RECALL_RANDOM_OLD", 1, int)
+# 单闸拆两级（2026-10-26 批 B）：
+#   一级「命中」ENTRY_SCORE：低于它连候选都不进，只在 stats/log 里看得到「没取到」。
+#   二级「敢说出口」EXIT_SCORE：候选有了，但分数不够就不许进上下文。
+# 旧环境变量 MEMORY_RECALL_MIN_SCORE 保留为 EXIT_SCORE 的别名，老配置不用改。
+ENTRY_SCORE = env_num("MEMORY_RECALL_ENTRY_SCORE", 0.08)
+EXIT_SCORE = env_num(
+    "MEMORY_RECALL_EXIT_SCORE",
+    env_num("MEMORY_RECALL_MIN_SCORE", 0.2),
+)
+MIN_SCORE = EXIT_SCORE
 REL_KEEP = 0.35  # 低于榜首分数 35% 的丢掉：宁缺毋滥
+RECENT_TURNS = 5  # 随机旧事要排除最近 5 轮已经出过的片段
+NO_RANDOM = os.environ.get("MEMORY_RECALL_NO_RANDOM", "").strip() not in ("", "0", "false", "False")
 OFF = os.environ.get("MEMORY_RECALL_OFF", "").strip() not in ("", "0", "false", "False")
 QUERY_MAX_CHARS = env_num("MEMORY_RECALL_QUERY_CHARS", 600, int)
+
+# 说话人口径（2026-10-26 批 B）：她本人原话默认 1.0；子智能体/测试样本/样本/来源不明
+# 在正文行尾有可见标记（见 tools/memwrite.py 的 SOURCE_MARKS），命中时按权重压分。
+# 这不是「谁说的算」而是「谁说的可以进上下文」：子智能体转述和测试记录不能跟她原话同权。
+SPEAKER_WEIGHTS = (
+    ("（测试记录，非本人原话）", 0.55),
+    ("（样本）", 0.45),
+    ("（子智能体记录）", 0.65),
+    ("（来源不明）", 0.75),
+)
+SUBAGENT_WEIGHT = 0.65
+
+
+def speaker_weight(text):
+    body = str(text or "")
+    for mark, weight in SPEAKER_WEIGHTS:
+        if mark in body:
+            return weight
+    return 1.0
+
+
+def passes_entry(score):
+    """一级闸门「命中」：够这个分才进候选。"""
+    try:
+        return float(score) >= ENTRY_SCORE
+    except (TypeError, ValueError):
+        return False
+
+
+def exit_floor(top=0.0):
+    """二级闸门「敢说出口」的分数线：不低于绝对阈值，也不低于榜首的 REL_KEEP。"""
+    try:
+        top = float(top)
+    except (TypeError, ValueError):
+        top = 0.0
+    return max(EXIT_SCORE, top * REL_KEEP) if top > 0 else EXIT_SCORE
+
+
+def passes_exit(score, top=0.0):
+    try:
+        return float(score) >= exit_floor(top)
+    except (TypeError, ValueError):
+        return False
+
+
 
 # 元规则模块降权（2026-10-26 她定）：闲聊查询里 90-99 这些讲「记忆库自己怎么修」的行
 # 会靠「记忆/库/检索」这些字抢前排，把真话题挤掉。非维护查询里乘一个权重。
@@ -334,6 +398,20 @@ def retrieve(query, k=None):
                 s = s * META_W
             rows.append((round(s, 3), module_id, line, text))
         rows.sort(key=lambda r: -r[0])
+    # 两级闸门 + 说话人口径统一在出口前过一遍：
+    #   ① 说话人权重：测试记录/样本/子智能体转述不能跟她原话同权（0.45–0.75）。
+    #   ② 一级闸门「命中」：低于 ENTRY_SCORE 的连候选都不进，日志里能看到「没取到」。
+    #     二级闸门「敢说出口」在 build_card 里按 EXIT_SCORE 再卡一次。
+    gated = []
+    for score, doc, line, text in rows:
+        try:
+            score = float(score) * speaker_weight(text)
+        except (TypeError, ValueError):
+            continue
+        if not passes_entry(score):
+            continue
+        gated.append((round(score, 3), doc, line, text))
+    rows = sorted(gated, key=lambda r: -r[0])
     out = []
     seen = set()
     for score, doc, line, text in rows:
@@ -409,19 +487,83 @@ def fingerprint(doc, line, text):
     return hashlib.sha1(("%s:%s:%s" % (doc, line, text[:80])).encode("utf-8")).hexdigest()[:12]
 
 
-def build_card(rows, st, reason):
+def recent_fps(st, window=RECENT_TURNS):
+    """最近 window 轮已经进过上下文的片段指纹。"""
+    turn = int(st.get("turn", 0) or 0)
+    out = set()
+    for entry in st.get("recent", []) or []:
+        try:
+            if turn - int(entry.get("turn", 0)) <= window:
+                out.update(entry.get("fps", []) or [])
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def random_old_row(st, exclude_fps):
+    """随机抽一条「旧事」代表行。
+
+    硬约束（2026-10-26 批 B）：
+      - 排除敏感模块 / 敏感词（走 docs.sensitive 与 BANNED_DOCS / BANNED_HINTS）；
+      - 排除本轮已经出的（exclude_fps 里带本轮 picked 的指纹）；
+      - 排除最近 5 轮出过的（recent_fps）；
+      - 只从 memdb 行层抽，拿得到 doc:line，不读整模块。
+    """
+    try:
+        import memdb
+        con = memdb.connect()
+        rows = con.execute(
+            "SELECT e.doc_id, e.line, e.text FROM entries e "
+            "JOIN docs d ON d.id = e.doc_id "
+            "WHERE e.deleted = 0 AND d.sensitive = 0 AND LENGTH(e.text) >= 20"
+        ).fetchall()
+    except Exception:
+        return None
+    pool = []
+    for doc, line, text in rows:
+        if str(doc) in BANNED_DOCS or str(doc).startswith("89"):
+            continue
+        if any(h in str(text) for h in BANNED_HINTS):
+            continue
+        if "（已退休 " in str(text):
+            continue
+        fp = fingerprint(doc, line, text)
+        if fp in exclude_fps:
+            continue
+        body = re.sub(r"\s+", " ", str(text)).strip()
+        if len(body) < 20:
+            continue
+        if len(body) > 140:
+            body = body[:138] + "…"
+        pool.append((doc, line, text, fp, body))
+    if not pool:
+        return None
+    return random.choice(pool)
+
+
+def build_card(rows, st, reason, no_random=False):
+    """把候选行组成注入卡片：按需 RELEVANT_N 条 + 随机旧事 RANDOM_OLD_N 条。
+
+    两级闸门在这里合流：`retrieve` 只放 ENTRY_SCORE 以上的候选，这里再用
+    `max(EXIT_SCORE, 榜首*REL_KEEP)` 卡一次——候选存在但不过出口闸的，只留在
+    cmd_hook 的日志里（cands/exit_drop），一个字都不进上下文。
+
+    `no_random=True` 回到旧行为：只取相关条（上限 MAX_N），一条随机都不加，
+    保证 `--no-random` 与今天的行为逐字一致。
+    """
     seen = set(st.get("seen", []))
-    if not rows:
+    recent = recent_fps(st)
+    if not rows and (no_random or RANDOM_OLD_N <= 0):
         return "", []
-    top = max(r[0] for r in rows)
-    floor = max(MIN_SCORE, top * REL_KEEP)
+    relevant_cap = MAX_N if no_random else max(0, min(RELEVANT_N, MAX_N))
+    top = max((r[0] for r in rows), default=0.0)
     picked = []
     per_doc = {}
     for score, doc, line, text in rows:
-        if score < floor:
+        if not passes_exit(score, top):
             continue
         fp = fingerprint(doc, line, text)
-        if fp in seen:
+        if fp in seen or fp in recent:
             continue
         body = re.sub(r"\s+", " ", str(text)).strip()
         if len(body) < 6:
@@ -432,14 +574,27 @@ def build_card(rows, st, reason):
             continue
         per_doc[doc] = per_doc.get(doc, 0) + 1
         picked.append((fp, score, doc, line, body))
-        if len(picked) >= MAX_N:
+        if len(picked) >= relevant_cap:
             break
+    random_fps = set()
+    if not no_random and RANDOM_OLD_N > 0 and picked:
+        for _ in range(RANDOM_OLD_N):
+            if len(picked) >= MAX_N:
+                break
+            exclude = seen | recent | {p[0] for p in picked}
+            old = random_old_row(st, exclude)
+            if not old:
+                break
+            doc, line, text, fp, body = old
+            picked.append((fp, 0.0, doc, line, body))
+            random_fps.add(fp)
     if not picked:
         return POINTER, []
     lines = [POINTER, "", "%s（%s，%d 条）" % (CARD_HEAD, reason, len(picked))]
     lines.append("> " + SUBJECT_NOTE)
     for fp, score, doc, line, body in picked:
-        lines.append("- %s:%s %s" % (doc, line, body))
+        suffix = "（随机旧事）" if fp in random_fps else ""
+        lines.append("- %s:%s %s%s" % (doc, line, body, suffix))
     return "\n".join(lines), [p[0] for p in picked]
 
 
@@ -597,6 +752,8 @@ def cmd_hook(a):
             "why": why,
             "items": 0,
             "chars": 0,
+            "cands": 0,
+            "exit_drop": 0,
         }]
         save_state(st)
         return 0
@@ -615,15 +772,27 @@ def cmd_hook(a):
     if prefixes and any(head.startswith(p) for p in prefixes):
         return _skip("delegated", "delegated")
     ok, reason = should_inject(st, text)
+    no_random = bool(getattr(a, "no_random", False)) or NO_RANDOM
     # 「跑起来了」和「真的注进去了」是两件事。2026-10-20 栽在这儿两次：
     # 只看 exitCode 就宣称通了，实际那一轮 stdout 一个字都没有。
     # 所以每次落盘都记下这一轮的账，让 hookcheck 有据可查。
     out_chars, out_items, why = 0, 0, reason if ok else "gate:%s" % reason
+    cands, exit_drop = 0, 0
     if ok:
         rows = retrieve(text)
-        card, fps = build_card(rows, st, reason)
+        cands = len(rows)
+        top = max((r[0] for r in rows), default=0.0)
+        floor = exit_floor(top)
+        exit_drop = sum(1 for r in rows if r[0] < floor)
+        card, fps = build_card(rows, st, reason, no_random=no_random)
         if card:
             st["seen"] = list(st.get("seen", [])) + fps
+            if fps:
+                keep = max(RECENT_TURNS - 1, 0)
+                recent = list(st.get("recent") or [])
+                st["recent"] = (recent[-keep:] if keep else []) + [
+                    {"turn": st["turn"], "fps": fps}
+                ]
             st["last"] = int(time.time())
             out_chars, out_items = len(card), len(fps)
             emit(card, a.host)
@@ -637,6 +806,9 @@ def cmd_hook(a):
         "why": why,
         "items": out_items,
         "chars": out_chars,
+        "cands": cands,
+        "exit_drop": exit_drop,
+        "no_random": no_random,
     }]
     save_state(st)
     return 0
@@ -645,7 +817,7 @@ def cmd_hook(a):
 def cmd_text(a):
     st = load_state(a.session)
     rows = retrieve(a.text)
-    card, fps = build_card(rows, st, "manual")
+    card, fps = build_card(rows, st, "manual", no_random=bool(getattr(a, "no_random", False)))
     if card:
         print(card)
     else:
@@ -690,11 +862,15 @@ def main():
     p.add_argument("--host", default="plain", choices=["plain", "codex", "claude", "opencode", "dsh"])
     p.add_argument("--text", default="")
     p.add_argument("--session", default="")
+    p.add_argument("--no-random", action="store_true",
+                   help="关掉随机旧事，回到旧行为：只取相关条")
     p.set_defaults(fn=cmd_hook)
 
     p = sub.add_parser("text", help="直接喂一段文本看检索效果")
     p.add_argument("text")
     p.add_argument("--session", default="default")
+    p.add_argument("--no-random", action="store_true",
+                   help="关掉随机旧事，回到旧行为：只取相关条")
     p.set_defaults(fn=cmd_text)
 
     p = sub.add_parser("stats")
