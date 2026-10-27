@@ -21,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SKELETON_DIR = ROOT / "references"
 CONTENT_DIR = ROOT / "memory"
+DIST_DIR = ROOT / "dist"
 
 # 模块文件名：三位编号（可带一位小写字母后缀），标题可有可无
 # （921–929 这批协议件是裸编号文件名，如 `923-巡检记录.md`）
@@ -211,6 +212,26 @@ def rel(path: Path) -> str:
         return path.resolve().relative_to(ROOT).as_posix()
     except ValueError:
         return path.as_posix()
+
+
+def newest_dist(dirs_only: bool = True) -> Path | None:
+    """dist 下最新的一个包。
+
+    按**版本号元组**比，不按文件名字典序——字符串序会把 `1.0.9` 排在
+    `1.0.26` 后面，`/MIR` 这种按名取包的流程会镜像成旧包（已踩两次）。
+    """
+    cands: list[tuple[tuple[int, int, int, int], Path]] = []
+    if not DIST_DIR.is_dir():
+        return None
+    for p in DIST_DIR.iterdir():
+        if dirs_only and not p.is_dir():
+            continue
+        m = re.match(r"user-memory-(\d+)\.(\d+)\.(\d+)(?:-(\d+))?", p.name)
+        if not m:
+            continue
+        major, minor, patch, date = m.groups()
+        cands.append(((int(major), int(minor), int(patch), int(date or 0)), p))
+    return max(cands)[1] if cands else None
 
 
 def plan() -> list[tuple[Path, Path]]:

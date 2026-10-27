@@ -89,19 +89,19 @@ WIN_HOME_RE = re.compile(r"(?i)\b[A-Z]:\\Users\\[^\\\s`'\"]+")
 
 # 配置里 scrub 之外，框架分支还要抹掉的私人标识
 EXTRA_SCRUB = {
-    "Shizuku": "<笔记库>",
-    "Aurora": "<家目录>",
-    "每日总结": "日记",
-    "Obsidian": "笔记软件",
-    "Nyacat": "<你的笔记本>",
-    "17743": "%USERNAME%",
-    "Kriste": "%USERNAME%",
-    "Sylte": "<你的英文名>",
-    "Cliste": "<你的英文名>",
-    "希露特": "<你的英文名>",
-    "Azunoshibainu": "<你的账号>",
-    "Aznoshibainu": "<你的账号>",
-    "星涟": "<项目>",
+    "<笔记库>": "<笔记库>",
+    "<家目录>": "<家目录>",
+    "日记": "日记",
+    "笔记软件": "笔记软件",
+    "<你的笔记本>": "<你的笔记本>",
+    "%USERNAME%": "%USERNAME%",
+    "%USERNAME%": "%USERNAME%",
+    "<你的英文名>": "<你的英文名>",
+    "<你的英文名>": "<你的英文名>",
+    "<你的英文名>": "<你的英文名>",
+    "<你的账号>": "<你的账号>",
+    "<你的账号>": "<你的账号>",
+    "<项目>": "<项目>",
     "<项目>": "<项目>",
     "用户": "用户",
 }
@@ -122,19 +122,19 @@ CODE_KEEP = [
 CODE_SCRUB = {
     "用户": "用户",
     "<项目>": "项目",
-    "Shizuku": "notes",
-    "Aurora": "home",
-    "Obsidian": "notes-app",
-    "每日总结": "daily",
-    "Nyacat": "laptop",
-    "Kriste": "user",
-    "17743": "user",
-    "Sylte": "yourname",
-    "Cliste": "yourname",
-    "希露特": "yourname",
-    "Azunoshibainu": "youraccount",
-    "Aznoshibainu": "youraccount",
-    "星涟": "proj",
+    "<笔记库>": "notes",
+    "<家目录>": "home",
+    "笔记软件": "notes-app",
+    "日记": "daily",
+    "<你的笔记本>": "laptop",
+    "%USERNAME%": "user",
+    "%USERNAME%": "user",
+    "<你的英文名>": "yourname",
+    "<你的英文名>": "yourname",
+    "<你的英文名>": "yourname",
+    "<你的账号>": "youraccount",
+    "<你的账号>": "youraccount",
+    "<项目>": "proj",
 }
 
 
@@ -188,7 +188,7 @@ def load_mapping() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     名字类：这个人是谁（账号名、外号、项目名、口头禅）——
       只用在文档里；代码文件上会把 `b"..."` 里的账号名 换成中文占位符，
       带 bytes 字面量当场 SyntaxError，字符串字面量则变成坏 URL。
-    长的先替换（`%USERPROFILE%\\Documents\\...` 必须先于 `Kriste`）。
+    长的先替换（`%USERPROFILE%\\Documents\\...` 必须先于 `%USERNAME%`）。
     """
     path_pairs: dict[str, str] = {}
     name_pairs: dict[str, str] = {}

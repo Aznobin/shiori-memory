@@ -21,11 +21,11 @@
     "javaVault": "<Java笔记库>"
   },
   "diary": {
-    "dir": "每日总结",
+    "dir": "日记",
     "prefix": "日记"
   },
   "update": {
-    "source": "https://raw.githubusercontent.com/<你的账号>/shiori-memory/master"
+    "source": "https://raw.githubusercontent.com/Aznobin/shiori-memory/master"
   },
   "pack": {
     "excludeDirs": [
