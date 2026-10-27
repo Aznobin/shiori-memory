@@ -25,6 +25,7 @@ import json
 import math
 import random
 import re
+import shutil
 import subprocess
 import sys
 from datetime import date
@@ -419,6 +420,7 @@ def build() -> int:
     today = date.today().isoformat()
     date_cache = _date_cache_load()
     carried = carry_decay_state()
+    live_dirs: set[str] = set()   # 本次真正写出的模块目录；收尾拿它对旧编号目录做自清（2026-10-28）
     anchors_by_module: dict[str, list[str]] = {}
     ANN_STATS.clear()
 
@@ -476,6 +478,7 @@ def build() -> int:
              for t, _lines in parts], mod_kw_list)
         mod_dir = FRAG / f"{mod_id}-{slug(mod_title, 8)}"
         mod_dir.mkdir(parents=True, exist_ok=True)
+        live_dirs.add(mod_dir.name)
         entries: list[dict] = []
         for seq, (title, lines) in enumerate(parts, start=1):
             text = "\n".join(lines).strip()
@@ -562,6 +565,17 @@ def build() -> int:
             for no, entry in enumerate(group, 1):
                 entry["part"]["seq"] = no
         index.extend(entries)
+
+    # 旧编号目录自清（2026-10-28）：build 只删 *.md，换号后旧目录会一直堆着（累计 65 个），
+    # 这里按「本次写出的目录名」把不属于当前模块的整个删掉，删了什么照实打印。
+    stale_dirs: list[str] = []
+    if FRAG.exists():
+        for d in sorted(p for p in FRAG.iterdir() if p.is_dir()):
+            if d.name not in live_dirs:
+                shutil.rmtree(d, ignore_errors=True)
+                stale_dirs.append(d.name)
+    if stale_dirs:
+        print(f"清理旧片段目录：{len(stale_dirs)} 个 → {'、'.join(stale_dirs)}")
 
     # 不切片的模块（921 变更日志、927 索引这类）也在装锚：它们没有片段条目能挂锚，锚只进 anchors.json
     sliced = {p.resolve() for p in files}
