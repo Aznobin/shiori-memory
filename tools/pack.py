@@ -437,6 +437,22 @@ def main() -> int:
         write(mem_target / "813-语气与交流.md", sanitize(pub89.read_text(encoding="utf-8")))
         print("  语气模块：包里放模板版 memory/813-语气与交流.md（开局必读）")
 
+    # 2026-10-27 第二级坐实：81 个子类骨架节点（`memory/<分区>/NNN-子类占位.md`）是结构件，
+    # 必须随包发出去——`memory` 整目录被排除是为了私库正文，骨架空壳不能跟着一起没。
+    # 只复制 kind: skeleton-node 的，别的一律不碰（私库正文一个字都不进包）。
+    node_total = 0
+    for d in sorted((root / "memory").iterdir()) if (root / "memory").is_dir() else []:
+        if not d.is_dir() or not re.match(r"^\d{3}-", d.name):
+            continue
+        for f in sorted(d.glob("*.md")):
+            txt = f.read_text(encoding="utf-8", errors="replace")[:800]
+            if not re.search(r"(?m)^kind:\s*[\"']?skeleton-node", txt):
+                continue
+            write(target / "memory" / d.name / f.name, sanitize(f.read_text(encoding="utf-8")))
+            node_total += 1
+    if node_total:
+        print(f"  骨架子类节点：包里放 memory/<分区>/NNN-子类占位.md {node_total} 个")
+
     # 2026-10-26 P1-C（她定的）：references/ 改成公开白名单，白名单外默认不进 dist。
     # 2026-10-27 阶段 3c：内容模块（000–899）已全搬进 memory/，这里只剩 9xx 系统区
     # 与骨架节点目录，白名单继续只放 90–99 系统区 + 926/927/928 三份索引。
@@ -778,6 +794,16 @@ def main() -> int:
             skeleton_items.append(name)
     for p in sorted((target / "references").glob("9*.md")):
         skeleton_items.append(p.relative_to(target).as_posix())
+    # 2026-10-27 第二级坐实：81 个子类骨架节点也是骨架，漏了收包人跑 skeleton_guard 就
+    # 认为「结构不完整」。路径按迁移后的规矩：1xx–8xx 在 memory/<分区>/、9xx 在 references/<分区>/。
+    for base_dir in ("memory", "references"):
+        base = target / base_dir
+        if not base.is_dir():
+            continue
+        for d in sorted(base.iterdir()):
+            if d.is_dir() and re.match(r"^\d{3}-", d.name):
+                skeleton_items += [p.relative_to(target).as_posix()
+                                   for p in sorted(d.glob("*.md")) if p.is_file()]
     skeleton_items = sorted(set(skeleton_items))
     sha_lines: list[str] = [
         "# 骨架清单：每行的 sha256 对得上才算没被动过。校验用 python tools/skeleton_guard.py",

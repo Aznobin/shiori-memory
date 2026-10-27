@@ -351,6 +351,52 @@ def main(argv: list[str] | None = None) -> int:
     for slot in sorted(SKELETON_SLOTS - claimed):
         issues.append(f"骨架槽位 {slot} 缺失（升级替换用的预留位，不能删）")
 
+    # 2c) 第二级子类骨架节点（2026-10-27 坐实第二级）：8×9 + 9 = 81 个。
+    #     规则：1xx–8xx 在 `memory/<分区>/`，9xx 在 `references/<分区>/`；
+    #     kind 必须是 skeleton-node，distribute 必须是 blank；少一个多一个都报 ❌。
+    sub_expected = {f"{mid[0]}{n}0" for mid in sorted(SKELETON_SLOTS - {"000"}) for n in range(1, 10)}
+    sub_seen: dict[str, Path] = {}
+    sub_extra: list[str] = []
+    for base in (root / "memory", root / "references"):
+        if not base.is_dir():
+            continue
+        for d in sorted(base.iterdir()):
+            if not d.is_dir() or not re.match(r"^\d{3}-", d.name):
+                continue
+            for f in sorted(d.glob("*.md")):
+                m = re.match(r"^(\d{3}[a-z]?)", f.name)
+                if not m:
+                    sub_extra.append(f.relative_to(root).as_posix())
+                    continue
+                if m.group(1) in sub_expected:
+                    sub_seen.setdefault(m.group(1), f)
+                else:
+                    sub_extra.append(f.relative_to(root).as_posix())
+    for mid, p in sorted(sub_seen.items()):
+        rel_p = p.relative_to(root).as_posix()
+        want_base = "references" if int(mid) >= 900 else "memory"
+        if p.parent.parent.name != want_base:
+            issues.append(f"{rel_p} 放错根目录：{mid} 应在 {want_base}/<分区>/")
+        if not p.parent.name.startswith(mid[0] + "00-"):
+            issues.append(f"{rel_p} 放错分区目录：{mid} 应在 {mid[0]}00-* 目录下")
+        fm = frontmatter(read(p))
+        if fm is None:
+            issues.append(f"{rel_p} 没有 frontmatter 区块")
+            continue
+        if not re.search(r"(?m)^kind\s*:\s*[\"']?skeleton-node", fm):
+            issues.append(f"{rel_p} kind 必须是 skeleton-node")
+        if not re.search(r"(?m)^distribute\s*:\s*[\"']?blank", fm):
+            issues.append(f"{rel_p} distribute 必须是 blank")
+    for mid in sorted(sub_expected - set(sub_seen)):
+        issues.append(f"第二级骨架节点 {mid} 缺失（8×9 + 9 = 81 个，不许少）")
+    if len(sub_seen) > len(sub_expected):
+        issues.append(f"第二级骨架节点多出 {len(sub_seen) - len(sub_expected)} 个")
+    if sub_extra:
+        issues.append("分区目录里有非骨架节点文件: " + ", ".join(sub_extra[:8]))
+    if len(sub_seen) != 81:
+        issues.append(f"第二级骨架节点 {len(sub_seen)} 个（应为 81）")
+    skeleton_nodes_n = len(sub_seen)
+
     # 3) 行数
     #    2026-10-22：三份「结构性长文件」超红线不拆，理由写在 83 §6 的红线豁免条里。
     #    它们照旧列在提醒里（不静默），但标「已豁免」，不再劝人去拆。
@@ -569,7 +615,7 @@ def main(argv: list[str] | None = None) -> int:
         issues.append("锚必须写在行首，行尾锚会被忽略: " + ", ".join(tail_anchors))
 
     print()
-    print(f"模块 {len(module_files)} 个 · SKILL.md {skill_lines} 行")
+    print(f"模块 {len(module_files)} 个 · SKILL.md {skill_lines} 行 · 第二级骨架节点 {skeleton_nodes_n} 个")
     if not issues and not warns:
         print("✅ 全部通过：登记一致、frontmatter 齐、行数达标、无超期、无待办")
         return 0

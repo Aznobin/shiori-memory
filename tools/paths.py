@@ -95,6 +95,26 @@ def _scan(dir_path: Path) -> dict[str, Path]:
     return out
 
 
+PARTITION_DIR_RE = re.compile(r"^(\d{3})-")
+
+
+def partition_dirs(base: Path) -> list[Path]:
+    """某根下的分区目录（第二级），如 `memory/100-日常与状态`；按编号排序。"""
+    if not base.is_dir():
+        return []
+    out = [d for d in sorted(base.iterdir()) if d.is_dir() and PARTITION_DIR_RE.match(d.name)]
+    return out
+
+
+def _scan_partitions(base: Path) -> dict[str, Path]:
+    """扫第二级：`<根>/<分区目录>/*.md` → `{模块号: Path}`（2026-10-27 坐实第二级）。"""
+    out: dict[str, Path] = {}
+    for d in partition_dirs(base):
+        for num, p in _scan(d).items():
+            out.setdefault(num, p)
+    return out
+
+
 def _is_skeleton_node(path: Path) -> bool:
     """frontmatter 里 `kind: skeleton-node` 的是占位骨架，不算内容模块。
 
@@ -120,8 +140,31 @@ def module_files() -> dict[str, Path]:
 
 
 def content_module_files() -> dict[str, Path]:
-    """只返回内容模块：滤掉骨架占位，给检索/目录/注入用。"""
+    """只返回内容模块：滤掉骨架占位（含第二级子类节点），给检索/目录/注入用。"""
     return {n: p for n, p in module_files().items() if not _is_skeleton_node(p)}
+
+
+def skeleton_node_files() -> dict[str, Path]:
+    """第二级骨架节点清单：`memory/<分区>/*.md` 与 `references/<分区>/*.md` 里 kind: skeleton-node 的。
+
+    这是「骨架节点清单」的唯一入口——生成器（tools/skeleton_nodes.py）、体检
+    （tools/memory_check.py）、打包清单（tools/pack.py）都从这里取，别再各自 glob。
+    这些文件**不进检索、不进注入**：`content_module_files()` 会把它们滤掉。
+    """
+    out: dict[str, Path] = {}
+    for base in (CONTENT_DIR, SKELETON_DIR):
+        for num, p in _scan_partitions(base).items():
+            if _is_skeleton_node(p):
+                out[num] = p
+    return out
+
+
+def all_module_files() -> dict[str, Path]:
+    """一级模块 + 二级骨架节点，给「看得见、但不进检索」的账本用。"""
+    out = module_files()
+    for num, p in skeleton_node_files().items():
+        out.setdefault(num, p)
+    return out
 
 
 def module_paths() -> list[Path]:
@@ -175,7 +218,9 @@ def plan() -> list[tuple[Path, Path]]:
     out: list[tuple[Path, Path]] = []
     for num, src in sorted(module_files().items()):
         want_dir = target_of(num)
-        if src.parent != want_dir:
+        # 2026-10-27：二级结构落地后，「在不在对的地方」按根目录判，
+        # 不能拿 `src.parent != want_dir` 比——分区子目录里的文件父级是分区目录。
+        if want_dir not in src.parents:
             out.append((src, want_dir / src.name))
     return out
 
@@ -183,18 +228,35 @@ def plan() -> list[tuple[Path, Path]]:
 def _print_check() -> None:
     skel = {n: p for n, p in _scan(SKELETON_DIR).items()}
     cont = {n: p for n, p in _scan(CONTENT_DIR).items()}
+    nodes = skeleton_node_files()
     print(f"ROOT          {ROOT}")
     print(f"SKELETON_DIR  {SKELETON_DIR}  （{'存在' if SKELETON_DIR.is_dir() else '不存在'}）")
     print(f"CONTENT_DIR   {CONTENT_DIR}  （{'存在' if CONTENT_DIR.is_dir() else '不存在'}）")
     print("")
-    print(f"骨架区 {len(skel)} 个：")
+    print(f"骨架区（一级）{len(skel)} 个：")
     for num in sorted(skel):
         print(f"  {num:<5} {rel(skel[num])}")
-    print(f"内容区 {len(cont)} 个：")
+    print(f"内容区（一级）{len(cont)} 个：")
     for num in sorted(cont):
         print(f"  {num:<5} {rel(cont[num])}")
     print("")
+    print(f"分区 → 子类（第二级）：")
+    sub_mem = sub_ref = 0
+    for base, label in ((CONTENT_DIR, "memory"), (SKELETON_DIR, "references")):
+        for d in partition_dirs(base):
+            nums = sorted(_scan(d))
+            if not nums:
+                continue
+            if label == "memory":
+                sub_mem += len(nums)
+            else:
+                sub_ref += len(nums)
+            print(f"  {label}/{d.name}/  {' '.join(nums)}")
+    print("")
     print(f"合计 {len(module_files())} 个模块（骨架 {len(skel)} + 内容 {len(cont)}）")
+    print(f"子类节点 {len(nodes)} 个（memory {sub_mem} + references {sub_ref}）")
+    print(f"清单合计 {len(all_module_files())} 个（一级 {len(module_files())} + 二级 {len(nodes)}）")
+    print(f"content_module_files() {len(content_module_files())} 个（已滤掉全部骨架与子类节点）")
 
 
 def _print_plan() -> None:

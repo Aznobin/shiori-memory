@@ -36,6 +36,22 @@ BRANCH = "framework"
 # 且带 distribute: blank（不夹带私库正文）。pack.py 出包末尾直接调 dist_memory_violations()。
 DIST_MEMORY_ALLOW = {"813-语气与交流.md"}
 FM_DISTRIBUTE_RE = re.compile(r"(?m)^\s*distribute\s*:\s*[\"']?([A-Za-z_]+)")
+# 2026-10-27 第二级坐实：`memory/<分区>/NNN-子类占位.md` 是骨架空壳（kind: skeleton-node），
+# 按设计要随包发出去；它不是语气模板，所以不进 DIST_MEMORY_ALLOW，在这里单独认。
+NODE_FILE_RE = re.compile(r"^\d{3}-子类占位\.md$")
+FM_KIND_RE = re.compile(r"(?m)^\s*kind\s*:\s*[\"']?([A-Za-z_-]+)")
+
+
+def _is_skeleton_node_file(f: Path) -> bool:
+    """包内这份是不是骨架子类节点：文件名对、kind: skeleton-node、distribute: blank。"""
+    if not NODE_FILE_RE.match(f.name):
+        return False
+    head = f.read_text(encoding="utf-8", errors="replace")[:800]
+    km = FM_KIND_RE.search(head)
+    if not km or km.group(1).lower() != "skeleton-node":
+        return False
+    dm = FM_DISTRIBUTE_RE.search(head)
+    return bool(dm and dm.group(1).lower() == "blank")
 
 P0 = "P0"
 P1 = "P1"
@@ -75,6 +91,8 @@ def dist_memory_violations(pkg: Path) -> list[str]:
     bad: list[str] = []
     for f in sorted(mem.rglob("*.md")):
         rel = f.relative_to(mem).as_posix()
+        if _is_skeleton_node_file(f):
+            continue  # 骨架空壳，按设计随包发（不算夹带私库正文）
         if rel not in DIST_MEMORY_ALLOW:
             bad.append(f"{rel}: 不在 framework-public 白名单里（禁止夹带私库模块）")
             continue

@@ -12,7 +12,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import cfg  # noqa: E402
-from paths import ROOT, SKELETON_DIR, module_files  # noqa: E402
+from paths import (  # noqa: E402
+    CONTENT_DIR,
+    ROOT,
+    SKELETON_DIR,
+    module_files,
+    partition_dirs,
+    skeleton_node_files,
+)
 
 BEGIN = "<!-- ROUTES:BEGIN -->"
 END = "<!-- ROUTES:END -->"
@@ -92,6 +99,22 @@ def meta_module_ids() -> set[str]:
     return set(META_MODULE_IDS)
 
 
+def skeleton_paths_note() -> str:
+    """「系统·骨架节点」行的说明：第二级子类目录的可达路径要写进来，不然没人知道它们在哪。
+
+    1xx–8xx 的子类目录在 `memory/<分区>/`、9xx 在 `references/<分区>/`（2026-10-27 坐实第二级）；
+    路径从磁盘长出来，别手抄——目录搬了这里跟着变。
+    """
+    dirs: list[str] = []
+    for base, label in ((CONTENT_DIR, "memory"), (SKELETON_DIR, "references")):
+        dirs.extend(f"`{label}/{d.name}/`" for d in partition_dirs(base))
+    return "；".join([
+        "子类节点（第二级，共 81 个，空壳不进检索）在 " + "、".join(dirs),
+        "读 `000-总索引.md` 看两级结构",
+        "改结构跑 `tools/skeleton_nodes.py`",
+    ])
+
+
 def mod_num(stem: str) -> str:
     """文件名前缀里的模块号；`923-巡检记录` → `923`。协议件 2026-10-27 起带标题，
     比较模块号时不能直接拿 stem 比，否则排除表全失效。"""
@@ -116,11 +139,16 @@ def present_ids() -> dict[str, str]:
     return out
 
 
-def write_detail() -> int:
-    """重建 references/928-路由详表.md（体检按「第一格是模块全名」核对登记）。"""
+def write_detail() -> tuple[int, int]:
+    """重建 references/928-路由详表.md（体检按「第一格是模块全名」核对登记）。
+
+    两级（2026-10-27 坐实第二级）：一级模块照旧；二级子类骨架节点另起一节，**第一格写裸编号**——
+    写成 `110-子类占位` 会被体检判「路由表登记但文件不存在」（它只认一级模块文件名）。
+    """
     rows = ["# 路由详表", "",
             "> 本文件由 `tools/routes.py` 按实际模块文件生成，别手改。", "",
             "| 模块 | 标题 |", "| --- | --- |"]
+    n_mod = 0
     for p in sorted(module_files().values()):
         stem = p.stem
         if mod_num(stem) in ("926", "927", "925", "923", "928", "924"):
@@ -129,8 +157,16 @@ def write_detail() -> int:
         m = re.search(r"(?m)^title:\s*(.+)$", head)
         title = (m.group(1).strip().strip('"') if m else stem)
         rows.append(f"| `{stem}` | {title} |")
+        n_mod += 1
+    nodes = skeleton_node_files()
+    if nodes:
+        rows += ["", "## 子类骨架节点（第二级，内容为空，不进检索）", "",
+                 "| 节点 | 说明 | 位置 |", "| --- | --- | --- |"]
+        for num, p in sorted(nodes.items()):
+            where = p.parent.relative_to(ROOT).as_posix()
+            rows.append(f"| `{num}` | 子类占位（骨架节点，内容为空） | `{where}/{p.name}` |")
     (SKELETON_DIR / "928-路由详表.md").write_text("\n".join(rows) + "\n", encoding="utf-8", newline="\n")
-    return len(rows) - 5
+    return n_mod, len(nodes)
 
 
 def route_rows() -> list[tuple[str, list[str], str, str]]:
@@ -147,6 +183,8 @@ def route_rows() -> list[tuple[str, list[str], str, str]]:
         if not keys:
             continue
         covered.update(keys)
+        if name == "系统·骨架节点":
+            how = skeleton_paths_note()
         rows.append((name, keys, what, how))
     extra = sorted(k for k in ids if k not in covered)
     if extra:
@@ -179,8 +217,8 @@ def main() -> int:
             text += "\n"
         new = text + "\n" + SECTION_TITLE + "\n\n" + block + "\n"
     agents.write_text(new, encoding="utf-8")
-    n = write_detail()
-    print(f"已写入 {agents}（{len(new.splitlines())} 行）· 路由详表 {n} 个模块")
+    n_mod, n_node = write_detail()
+    print(f"已写入 {agents}（{len(new.splitlines())} 行）· 路由详表 {n_mod} 个模块 + {n_node} 个子类节点")
     return 0
 
 
