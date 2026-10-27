@@ -32,7 +32,7 @@ DEFAULTS = {
     "git": {"name": "memory-bot", "email": "bot@local"},
     "diary": {
         # 日记文件名形如 "<日记前缀> %Y年%m月%d日.md"，放 <workspace>/<日记目录>/
-        "dir": "日记",
+        "dir": "每日总结",
         "prefix": "日记",
     },
 }

@@ -60,13 +60,13 @@ SPEC_RE = re.compile(r"<!--\s*S:[^>]*-->")
 MIN_CHARS = 20          # 太短的段落并入上一片段
 SENSITIVE_MODULES = SENSITIVE_MODULE_IDS
 MAIN_MODULES = MAIN_SCORE_MODULE_IDS
-SKIP_FILES = {"927.md", "921.md"}
+SKIP_FILES = {"927-记忆库总览.md", "921-变更日志.md"}
 # 2026-10-24：`stats` 报的「模块数」改成文件口径，与 catalog.py / memory_check.py 相等（23）；
 # 本文件只切其中能切的那部分（`921` 按日志处理、不切片），所以另报一个「有片段」的数。
 # 排除表与 catalog.py 的 EXCLUDE 逐项对齐，改一处就一起改。
-MODULE_FILES_EXCLUDE = ("926.md", "927.md", "925.md", "923.md", "928.md",
-                        "924.md")
-SLICE_UNDERSCORE = {"922.md"}   # inbox 里的半句话也要搜得到，否则写进去等于没写（2026-10-20）
+MODULE_FILES_EXCLUDE = ("926-模块标题.md", "927-记忆库总览.md", "925-复核清单.md", "923-巡检记录.md", "928-路由详表.md",
+                        "924-合并候选清单.md")
+SLICE_UNDERSCORE = {"922-待确认inbox.md"}   # inbox 里的半句话也要搜得到，否则写进去等于没写（2026-10-20）
 
 DATE_CACHE = FRAG / ".dates.json"   # 行级日期缓存；build 只删 *.md，这份 json 留着（2026-10-23）
 RECENT_HALF_LIFE = 90.0             # 时间乘子的半衰期：90 天新鲜度掉一半

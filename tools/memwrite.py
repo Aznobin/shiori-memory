@@ -112,7 +112,7 @@ def module_file(root: Path, module: str) -> Path:
         raise SystemExit(
             f"[拒绝] {module} 是骨架节点，只能由 tools/skeleton_nodes.py 生成；内容请写到末位非 0 的模块"
         )
-    # 2026-10-24：收件箱的文件名就是 `922.md`，不带短横线后缀，单独认一下
+    # 2026-10-24：收件箱的文件名就是 `922-待确认inbox.md`，不带短横线后缀，单独认一下
     pattern = f"{module}.md" if module.startswith("_") else f"{module}-*.md"
     hits: list[Path] = []
     for base in module_dirs(root):
@@ -271,7 +271,7 @@ def insert_at(lines: list[str], start: int, end: int, bullets: list[str]) -> lis
 
 def changelog_row(root: Path, today: str, files: str, summary: str) -> bool:
     """插在变更日志表头分隔线下面（表是新的在上、旧的下沉），不是文件末尾。"""
-    path = skeleton_dir(root) / "921.md"
+    path = skeleton_dir(root) / "921-变更日志.md"
     if not path.is_file():
         return False
     lines, crlf = read_doc(path)
@@ -678,14 +678,14 @@ def selftest() -> int:
         # 说明/前言时也要插在分隔线下面，不许退回文件末尾。
         cl_dir = root / "references"
         cl_dir.mkdir(parents=True, exist_ok=True)
-        cl_path = cl_dir / "921.md"
+        cl_path = cl_dir / "921-变更日志.md"
         cl_pad = [f"| 旧行 {i} | x | y | z |" for i in range(45)]
         cl_lines = ["# 变更日志", "", "| 日期 | 文件 | 改动 | 触发 |",
                     "| --- | --- | --- | --- |"] + cl_pad
         cl_path.write_text("\n".join(cl_lines), encoding="utf-8", newline="")
         check(
             "表头超过 40 行仍插对位（A1）",
-            changelog_row(root, today, "`922.md`", "只改待确认的说明") is True
+            changelog_row(root, today, "`922-待确认inbox.md`", "只改待确认的说明") is True
             and next(
                 (i for i, ln in enumerate(read_lines(cl_path)) if "只改待确认的说明" in ln),
                 -1,
@@ -778,7 +778,7 @@ def new_module(root: Path, spec: str, dry: bool) -> int:
         "distribute: keep\n"
         "---\n\n"
         f"# {name}\n\n"
-        "> 这个模块是空的：按自己的情况往里加条目，一条只记一个事实，格式见 `926.md`。\n"
+        "> 这个模块是空的：按自己的情况往里加条目，一条只记一个事实，格式见 `926-模块标题.md`。\n"
     )
     shown = path.relative_to(root).as_posix()
     if dry:

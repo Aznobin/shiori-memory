@@ -51,7 +51,7 @@ python tools/memwrite.py 请求.json --changelog "一句话摘要"
 - 空模块开头那句「> 这个模块是空的…」在第一次写入后会被自动删掉
 - **同一模块一次别加超过 4 条**：切片按 4 行机械切，超了会被拆成两片，检索只命中半截
 - 新建模块：`python tools/memwrite.py --new-module 301-项目`（顺带刷路由表和 CATALOG）
-- 拿不准的推测扔 `references/922.md`（文件末尾一条 bullet），别当事实用
+- 拿不准的推测扔 `references/922-待确认inbox.md`（文件末尾一条 bullet），别当事实用
 - 想删一条：`"op": "retire"` + `"reason": "为什么让它退休"`。**软删**——正文一个字不删，行尾打「（已退休 日期：理由）」，检索时跳过；以后能看见、也能改回来
 - 每天收尾跑一次结算（幂等，跑多次只算一次）：`python tools/tick.py`
 
@@ -110,7 +110,7 @@ python tools/update.py rollback      # 换坏了退回去（自动备份在 stat
 1. **要动上面任何一个，先停下来问库主人**：「这是骨架，改了会和下次升级冲突，你确定要改吗」。得到明确同意才动手；没同意就是没同意，别自己找理由。
 2. **不要为了让某条命令跑通去改脚本**。报错就按 §3 原样记下来（命令 + 报错 + 你当时想做什么），记为一条更值钱。
 3. **要有自己的规矩，往 `references\` 里加模块**（`python tools/memwrite.py --new-module 12-某某`），那才是你的地。骨架不是玩具，改坏了下一个接手的人不知道原样。
-4. **生成物永远重跑，不手改**：`fragments\` 跑 `frag.py build`，`references\927.md` 跑 `catalog.py`，`references\928.md` 跑 `routes.py`。
+4. **生成物永远重跑，不手改**：`fragments\` 跑 `frag.py build`，`references\927-记忆库总览.md` 跑 `catalog.py`，`references\928-路由详表.md` 跑 `routes.py`。
 5. **想验骨架有没有被动过**：`python tools/skeleton_guard.py`——对照 `SKELETON.sha256` 逐文件核，被动过会列出改过 / 缺失 / 多出来的，并告诉你恢复办法。它只读不写。
 
 ### 安全阀（这三种先停手，问过再动）
@@ -119,7 +119,7 @@ python tools/update.py rollback      # 换坏了退回去（自动备份在 stat
 
 **2. 可能删掉重要文件**——`rm -rf`、`Remove-Item -Recurse`、`robocopy /MIR`（镜像会删目标侧）、`git reset --hard`、`git clean -fdx`、`git push --force`、清空目录：先把要动的绝对路径打出来核对，再动手；删前先 `python tools/memdb.py snapshot`。删记忆只走 `memwrite.py` 的 `retire`（软删 + 必填理由），正文行只在库主人亲口说「忘掉 / 不用记」时才硬删。
 
-**3. 可能把库改坏**——不手改 `fragments\` 与生成物（`927.md` / `928.md`），不在 `tools\` 里临时改一行「跑通再说」，升级换骨架先 `--dry` 看清单。
+**3. 可能把库改坏**——不手改 `fragments\` 与生成物（`927-记忆库总览.md` / `928-路由详表.md`），不在 `tools\` 里临时改一行「跑通再说」，升级换骨架先 `--dry` 看清单。
 
 一句话：**停下来问一句的成本，永远低于删错了重来。**
 

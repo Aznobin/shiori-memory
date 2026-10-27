@@ -179,7 +179,7 @@ def main() -> int:
     print("接下来：")
     print("  1. 填 memory.config.json 里的 workspace / codeRepo（体检脚本用它）")
     print("  2. 把打开记忆的约定写进你自己的 AGENTS.md（第 1 节）")
-    print("  3. 空模块（distribute: blank）按自己的情况逐条填，格式见 references/926.md")
+    print("  3. 空模块（distribute: blank）按自己的情况逐条填，格式见 references/926-模块标题.md")
     print("  4. 要发给别人：python tools/pack.py")
     print("  5. 换设备 / 改过 86 §七之后：python tools/agents_sync.py 对齐 AGENTS.md 的托管块")
     return 0

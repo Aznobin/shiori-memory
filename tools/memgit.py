@@ -343,7 +343,7 @@ def default_msg(root=None):
     root = root or ROOT
     files = changed_files(root)
     try:
-        log_path = pathlib.Path(root) / "references" / "921.md"
+        log_path = pathlib.Path(root) / "references" / "921-变更日志.md"
         log = log_path.read_text(encoding="utf-8")
         body = match_log_row(files, log)
         if body:
@@ -358,7 +358,7 @@ def default_msg(root=None):
 def selftest():
     """临时仓库里验说明来源：覆盖率达标的变更日志行才复用，否则走「文件名 + 一句摘要」。
 
-    样本：① 只写 922.md（日志没有它）→ 兜底；② 5 个文件只对上 1 个 → 兜底（回归守卫）；
+    样本：① 只写 922-待确认inbox.md（日志没有它）→ 兜底；② 5 个文件只对上 1 个 → 兜底（回归守卫）；
     ③ 3 个文件对上 2 个 → 用那行；④ 日志缺失 → 兜底。自测期间真库一行不许动。
     """
     import shutil
@@ -394,7 +394,7 @@ def selftest():
         root = base / name
         refs = root / "references"
         refs.mkdir(parents=True, exist_ok=True)
-        (refs / "921.md").write_text(log_text, encoding="utf-8", newline="")
+        (refs / "921-变更日志.md").write_text(log_text, encoding="utf-8", newline="")
         for cmd in (
             ["git", "init", "-q", "-b", "main"],
             ["git", "config", "--local", "user.name", "selftest"],
@@ -423,22 +423,22 @@ def selftest():
         with tempfile.TemporaryDirectory() as tmp:
             base = pathlib.Path(tmp)
 
-            # ① 只写 922.md，日志最新行是别的文件 → 兜底
+            # ① 只写 922-待确认inbox.md，日志最新行是别的文件 → 兜底
             root = mkrepo(
                 base, "a",
                 header + "| 2026-10-26 | `memory/809-独立人格与立场.md` | 【上一条说明】不该被复用 | 自测 |\n",
             )
-            touch(root, "references/922.md")
+            touch(root, "references/922-待确认inbox.md")
             files = changed_files(root)
-            check("能取到改动文件名", any(f.endswith("922.md") for f in files), str(files))
+            check("能取到改动文件名", any(f.endswith("922-待确认inbox.md") for f in files), str(files))
             msg = default_msg(root)
-            check("只写 922.md 时说明与内容一致（不复用上一条）", "922.md" in msg and "上一条说明" not in msg, msg)
+            check("只写 922-待确认inbox.md 时说明与内容一致（不复用上一条）", "922-待确认inbox.md" in msg and "上一条说明" not in msg, msg)
             check("兜底带文件名与一句摘要", "无对应变更日志行" in msg and "模块正文改动" in msg, msg)
 
             # ② 5 个文件改动，日志最新行只提到 1 个（覆盖率 20%）→ 必须兜底
             root = mkrepo(
                 base, "b",
-                header + "| 2026-10-26 | `references/921.md` | 【只提一个文件】不该整条复用 | 自测 |\n",
+                header + "| 2026-10-26 | `references/921-变更日志.md` | 【只提一个文件】不该整条复用 | 自测 |\n",
             )
             touch(root, [f"references/{n}.md" for n in ("901", "902", "903", "904", "921")])
             msg = default_msg(root)
@@ -460,10 +460,10 @@ def selftest():
 
             # ④ 变更日志缺失 → 兜底
             root = mkrepo(base, "d", header)
-            touch(root, "references/922.md")
-            (root / "references" / "921.md").unlink()
+            touch(root, "references/922-待确认inbox.md")
+            (root / "references" / "921-变更日志.md").unlink()
             msg = default_msg(root)
-            check("变更日志缺失时也走文件名兜底", "922.md" in msg, msg)
+            check("变更日志缺失时也走文件名兜底", "922-待确认inbox.md" in msg, msg)
     finally:
         subprocess.run = real_run
     shutil.rmtree(tmp, ignore_errors=True)

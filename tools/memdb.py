@@ -31,14 +31,26 @@ CONTENT = os.path.join(ROOT, "memory")
 
 
 def module_files() -> list[str]:
-    """两个根里的模块 md：`references/` 与 `memory/`（阶段3a 双根读取）。"""
+    """两个根里的内容模块 md：`references/` 与 `memory/`（阶段3a 双根读取）。
+
+    骨架节点（`kind: skeleton-node`，000/100/…/900）只放结构，不进索引。
+    """
     out: list[str] = []
     for base in (REFS, CONTENT):
         if not os.path.isdir(base):
             continue
         for name in sorted(os.listdir(base)):
-            if name.endswith(".md"):
-                out.append(os.path.join(base, name))
+            if not name.endswith(".md"):
+                continue
+            p = os.path.join(base, name)
+            try:
+                with open(p, "r", encoding="utf-8-sig") as f:
+                    head = f.read(600)
+            except OSError:
+                continue
+            if re.search(r"^kind:\s*[\"']?skeleton-node", head, re.M):
+                continue
+            out.append(p)
     return out
 STATE = os.path.join(os.path.expanduser("~"), ".agents", "state")
 LOCK = os.path.join(STATE, "memory.lock")
@@ -319,7 +331,7 @@ QUIZ = [
     ("算法讲解给不给完整代码", "代码块 默认 输出", "不默认输出代码块"),
     ("笔记精炼规则", "精炼 笔记", "精炼"),
     ("省 token 的规矩", "token", "token"),
-    ("日记怎么读", "日记 日记", "日记"),
+    ("日记怎么读", "日记 每日总结", "每日总结"),
     ("项目现在什么版本", "版本 V0", "V0."),
     ("pwsh 挂了怎么办", "pwsh 3221225794", "3221225794"),
     ("抓网页用什么工具", "bcdp 浏览器", "bcdp"),

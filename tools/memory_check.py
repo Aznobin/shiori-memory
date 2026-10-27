@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ROOT = ROOT
 
 # 内容模块在 `memory/`，骨架与协议件在 `references/`；`--root` 指向哪个库就扫哪个库。
-MODULE_EXCLUDE = ("926.md", "927.md", "925.md", "923.md", "928.md", "924.md")
+MODULE_EXCLUDE = ("926-模块标题.md", "927-记忆库总览.md", "925-复核清单.md", "923-巡检记录.md", "928-路由详表.md", "924-合并候选清单.md")
 
 # 疑似编号迁移改坏日期（2026-10-27 批 M）：两位→三位替换那次把 `2026-10-26` 里的
 # `701`/`212` 当成模块号，写成了「年-三位模块号-日」这种坏串。这两种形状在正文里没有任何正当用途。
@@ -69,7 +69,7 @@ def _module_map(root: Path) -> dict[str, Path]:
 LINE_EXEMPT: dict[str, str] = {
     "905-AGENTS骨架.md": "整份照抄给新机器，拆开就拼不起来",
     "918-架构大纲.md": "改动前必读的唯一入口，要一次读全",
-    "921.md": "台账价值在连续，只往后归档旧年份",
+    "921-变更日志.md": "台账价值在连续，只往后归档旧年份",
     "813-语气与交流（每次必读）.md": "每次对话都读的语气模块，拆开只会多一次读取",
     "809-独立人格与立场.md": "常驻行为规则已整段注入 AGENTS.md §8，正文要一次读全",
     "803-用户自己的性格.md": "人格自述看的是变化轨迹，拆开读不出前后差别",
@@ -105,7 +105,7 @@ def frontmatter(text: str) -> str | None:
 def parse_updated(text: str) -> str:
     """从 frontmatter 里取 updated 日期。
 
-    2026-10-26：引号链修好前 `tools/decay.py` 生成的 `924.md` 写成
+    2026-10-26：引号链修好前 `tools/decay.py` 生成的 `924-合并候选清单.md` 写成
     `updated: "2026-10-24"`（带引号），下面原来只认裸日期的正则会把这种正常
     写法判成「没有可解析的 updated 日期」并吐假 ❌。裸日期和带引号/单引号
     两种写法都收，返回 `YYYY-MM-DD`；取不到返回空串。
@@ -120,7 +120,7 @@ def parse_updated(text: str) -> str:
 def _selftest() -> int:
     """只验两件事：带引号的 updated 不再误报；真缺字段仍然报。
 
-    用临时目录跑真 `main()`，临时目录里没有 `923.md`（体检日期那条会走
+    用临时目录跑真 `main()`，临时目录里没有 `923-巡检记录.md`（体检日期那条会走
     「文件不存在」分支，只给建议不给硬错），所以硬错误数可预期。
     """
     import contextlib
@@ -144,7 +144,7 @@ def _selftest() -> int:
         refs = root / "references"
         refs.mkdir(parents=True, exist_ok=True)
         (root / "SKILL.md").write_text("# 临时\n", encoding="utf-8", newline="")
-        (refs / "928.md").write_text(
+        (refs / "928-路由详表.md").write_text(
             "| 大类 | 模块 |\n| --- | --- |\n| 测 | `003-带引号.md` |\n| 测 | `32-缺字段.md` |\n",
             encoding="utf-8",
             newline="",
@@ -266,27 +266,42 @@ def main(argv: list[str] | None = None) -> int:
     print(f"宿主: Python {sys.version.split()[0]}")
 
     # 1) 路由表 <-> 文件
-    #    2026-10-20 起小类详表拆到 references/928.md；两张都读，缺一张就只看另一张
+    #    2026-10-20 起小类详表拆到 references/928-路由详表.md；两张都读，缺一张就只看另一张
     route_text = skill_text
-    route_src = refs / "928.md"
+    route_src = refs / "928-路由详表.md"
     if route_src.exists():
         route_text += "\n" + read(route_src)
+    mods = _module_map(root)
+    by_num: dict[str, str] = {}
+    for fname in mods:
+        m = re.match(r"^(\d{2,3}[a-z]?)", fname)
+        if m:
+            by_num.setdefault(m.group(1), fname)
+
     route_files: list[str] = []
     for row in re.findall(r"(?m)^\|\s*([^|]*?)\s*\|", route_text):
         for name in re.findall(r"`([^`]+)`", row):
-            # `929.md` 是 `_` 开头的结构件、已在 `928.md` 登记，名字不匹配 \d{2}[a-z]?- 规则，单独白名单
-            if re.match(r"^\d{2,3}[a-z]?-", name) or name in ("922", "921", "925", "923", "929"):
+            if "/" in name:
+                continue
+            if name.endswith(".md"):
+                if name in mods:
+                    route_files.append(name)
+                continue
+            # 2026-10-27：协议件文件改名成 `923-巡检记录.md` 之后，表里还写着裸模块号，
+            # 靠「模块号 → 真文件名」查表对齐；带标题的 stem 直接补 .md。
+            if re.match(r"^\d{2,3}[a-z]?-", name):
                 route_files.append(name + ".md")
-
-    mods = _module_map(root)
+            elif name in by_num:
+                route_files.append(by_num[name])
     module_files = [
         name
         for name in sorted(mods)
-        # 2026-10-24：924.md 是 decay.py --pairs 的生成物（distribute: drop、auto 日期），
+        # 2026-10-24：924-合并候选清单.md 是 decay.py --pairs 的生成物（distribute: drop、auto 日期），
         # 不该当人写模块查路由与 updated，否则每次 --pairs 都多两条假 ❌。
         if name not in MODULE_EXCLUDE
     ]
 
+    route_files = [f for f in route_files if f not in MODULE_EXCLUDE]
     missing_file = [f for f in route_files if f not in module_files]
     missing_route = [f for f in module_files if f not in route_files]
     if missing_file:
@@ -305,6 +320,36 @@ def main(argv: list[str] | None = None) -> int:
         for field in required:
             if not re.search(rf"(?m)^{field}\s*:", fm):
                 issues.append(f"{name} frontmatter 缺 {field}")
+
+    # 2b) 末位 0 槽位是给升级替换预留的骨架节点（2026-10-27 她定的）：
+    #     用户和 agent 都不许占用，占了就得报红。派生层看不见它们（paths.content_module_files），
+    #     但文件本身要在，且必须仍是 kind: skeleton-node。
+    SKELETON_SLOTS = {"000", "100", "200", "300", "400", "500", "600", "700", "800", "900"}
+    claimed: set[str] = set()
+    for name in module_files:
+        text = read(mods[name])
+        fm = frontmatter(text)
+        if fm is None:
+            continue
+        mid_m = re.search(r"(?m)^id\s*:\s*[\"']?(\d+)[\"']?\s*$", fm)
+        kind_m = re.search(r"(?m)^kind\s*:\s*[\"']?([\w-]+)", fm)
+        if not mid_m:
+            continue
+        mid = mid_m.group(1)
+        kind = kind_m.group(1) if kind_m else ""
+        is_slot = mid.endswith("0")
+        if is_slot:
+            claimed.add(mid)
+            if kind != "skeleton-node":
+                issues.append(f"{name} 占用了 {mid} 预留槽位，kind 必须是 skeleton-node")
+            if mid == "900" and mods[name].parent.name != "references":
+                issues.append(f"{name} 放错目录：900 正本必须在 references/")
+            if mid != "900" and mods[name].parent.name != "memory":
+                issues.append(f"{name} 放错目录：{mid} 骨架节点在 memory/")
+        elif kind == "skeleton-node":
+            issues.append(f"{name} 的 id {mid} 末位不是 0，却标成 skeleton-node")
+    for slot in sorted(SKELETON_SLOTS - claimed):
+        issues.append(f"骨架槽位 {slot} 缺失（升级替换用的预留位，不能删）")
 
     # 3) 行数
     #    2026-10-22：三份「结构性长文件」超红线不拆，理由写在 83 §6 的红线豁免条里。
@@ -337,7 +382,7 @@ def main(argv: list[str] | None = None) -> int:
             warns.append(f"{name} updated 距今 {age} 天：话题涉及现状时先复核")
 
     # 5) inbox
-    inbox = read(refs / "922.md")
+    inbox = read(refs / "922-待确认inbox.md")
     pending = len(re.findall(r"(?m)^\|\s*\d{4}-\d{2}-\d{2}\s*\|", inbox))
     if pending:
         warns.append(f"inbox 有 {pending} 条待确认：收尾时清一遍")
@@ -354,13 +399,13 @@ def main(argv: list[str] | None = None) -> int:
             warns.append("台账 2 次以上却没升级: " + m.group(1).strip())
 
     # 7) 变更日志
-    log_text = read(refs / "921.md")
+    log_text = read(refs / "921-变更日志.md")
     log_dates = dates_in_tables(log_text)
     if log_dates:
         print(f"变更日志: {len(log_dates)} 行，最新 {max(log_dates)}")
 
     # 8) 节律
-    check_text = read(refs / "923.md")
+    check_text = read(refs / "923-巡检记录.md")
     check_dates = sorted(dates_in_tables(check_text), reverse=True)
     if not check_dates:
         warns.append("_巡检记录 里没有任何体检日期：跑完这轮补一行")

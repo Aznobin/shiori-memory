@@ -23,7 +23,7 @@ SKELETON_DIR = ROOT / "references"
 CONTENT_DIR = ROOT / "memory"
 
 # 模块文件名：三位编号（可带一位小写字母后缀），标题可有可无
-# （921–929 这批协议件是裸编号文件名，如 `923.md`）
+# （921–929 这批协议件是裸编号文件名，如 `923-巡检记录.md`）
 MODULE_RE = re.compile(r"^(\d{3}[a-z]?)(?:-.+)?\.md$")
 # 骨架区编号下界：>= 900 归 references/，其余归 memory/
 SKELETON_FLOOR = 900
@@ -95,11 +95,33 @@ def _scan(dir_path: Path) -> dict[str, Path]:
     return out
 
 
+def _is_skeleton_node(path: Path) -> bool:
+    """frontmatter 里 `kind: skeleton-node` 的是占位骨架，不算内容模块。
+
+    骨架节点（000/100/…/900）只放结构、keywords 恒空；把它们塞进检索、
+    目录和注入层等于往真模块清单里掺空壳，查出来什么都没有。
+    """
+    try:
+        head = path.read_text(encoding="utf-8", errors="ignore")[:600]
+    except OSError:
+        return False
+    return re.search(r"^kind:\s*[\"']?skeleton-node", head, re.M) is not None
+
+
 def module_files() -> dict[str, Path]:
-    """两个根里的模块文件，`{模块号: Path}`；同号时 `memory/` 优先。"""
+    """两个根里的模块文件，`{模块号: Path}`；同号时按归属目录优先。"""
     out = _scan(SKELETON_DIR)
-    out.update(_scan(CONTENT_DIR))
+    for num, p in _scan(CONTENT_DIR).items():
+        if num in out and split_of(num) == "skeleton":
+            # >=900 的正本在 references/；memory/ 里同号那份是误放，别让它顶掉正本
+            continue
+        out[num] = p
     return out
+
+
+def content_module_files() -> dict[str, Path]:
+    """只返回内容模块：滤掉骨架占位，给检索/目录/注入用。"""
+    return {n: p for n, p in module_files().items() if not _is_skeleton_node(p)}
 
 
 def module_paths() -> list[Path]:
@@ -110,7 +132,7 @@ def module_paths() -> list[Path]:
 def resolve_module(num: str) -> Path | None:
     """按模块号找文件：先 `memory/`，再 `references/`；找不到返回 None。
 
-    两种命名都要认：`809-独立人格与立场.md`（带标题）和 `923.md`（协议件裸编号）。
+    两种命名都要认：`809-独立人格与立场.md`（带标题）和 `923-巡检记录.md`（协议件裸编号）。
     """
     num = str(num).strip()
     for base in (CONTENT_DIR, SKELETON_DIR):

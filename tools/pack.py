@@ -71,7 +71,7 @@ def selftest_sanitize() -> int:
     """sanitize 的邮箱 + 残渣规则自测：确认数字 id 命中、残渣被折平、普通邮箱不被误判成移除。"""
     cases = [
         ("联系 <邮箱已移除> 谢谢", "<邮箱已移除>", "<你的邮箱>"),
-        ("owner <你的邮箱>", "<邮箱已移除>", "<你的邮箱>"),
+        ("owner <邮箱已移除>", "<邮箱已移除>", "<你的邮箱>"),
         ("备用 <邮箱已移除>", "<邮箱已移除>", "<你的邮箱>"),
         ("模板 <你的邮箱>", "<你的邮箱>", "<邮箱已移除>"),
         ("普通 <你的邮箱>", "<你的邮箱>", "<邮箱已移除>"),
@@ -178,7 +178,7 @@ def to_blank(text: str, hint: str = "") -> str:
 
     fm = re.sub(r"(?m)^updated:.*$", f"updated: {_date.today().isoformat()}", fm)
     head, _ = get_head(body)
-    note = "\n> 这个模块是空的：按自己的情况往里加条目，一条只记一个事实，格式见 `926.md`。\n"
+    note = "\n> 这个模块是空的：按自己的情况往里加条目，一条只记一个事实，格式见 `926-模块标题.md`。\n"
     return fm + head + note
 
 
@@ -232,7 +232,7 @@ def main() -> int:
         if real and ph:
             mapping.append((str(real), str(ph)))
     for k, v in (cfg.get("pack", {}).get("scrub") or {}).items():
-        # v 允许是空串（「喵」→删掉、「<家目录>\<笔记库>\」→删掉）：原来写 `if k and v` 会把空串目标整条丢掉，
+        # v 允许是空串（「喵」→删掉、「Aurora\Shizuku\」→删掉）：原来写 `if k and v` 会把空串目标整条丢掉，
         # 结果包里留着该抹掉的词（2026-10-20 抓到，扫描命中 `喵`）
         if k and v is not None:
             mapping.append((str(k), str(v)))
@@ -292,7 +292,7 @@ def main() -> int:
     src_refs = root / "references"
     bad: list[str] = []
     for f in sorted(src_refs.glob("*.md")):
-        if f.name in ("927.md", "926.md"):
+        if f.name in ("927-记忆库总览.md", "926-模块标题.md"):
             continue
         v = front_field(read(f), "distribute", default_mode(f.stem))
         if v not in ALLOWED:
@@ -366,7 +366,7 @@ def main() -> int:
     dropped: list[str] = []
     ref_target = target / "references"
     for file in sorted(ref_target.glob("*.md")):
-        if file.name in ("927.md", "926.md"):
+        if file.name in ("927-记忆库总览.md", "926-模块标题.md"):
             continue
         raw = read(file)
         mode = front_field(raw, "distribute", default_mode(file.stem))
@@ -417,7 +417,7 @@ def main() -> int:
     owner = owner_m.group(1) if owner_m else ""
 
     for rel in ("SKILL.md", "README.md", "LICENSE", "setup.ps1", "templates/AGENTS.md",
-                "references/926.md", "config.example.json"):
+                "references/926-模块标题.md", "config.example.json"):
         p = target / rel
         if p.exists():
             body = sanitize(read(p))
@@ -442,7 +442,7 @@ def main() -> int:
     # 与骨架节点目录，白名单继续只放 90–99 系统区 + 926/927/928 三份索引。
     # 私人模块（08a、12a/12b、21a/21b、变更日志、_待确认、_巡检记录、
     # _合并候选、_复核清单、_表情包清单…）一律在包内删掉，不靠 frontmatter 黑名单。
-    PUBLIC_REF_FIXED = {"927.md", "926.md", "928.md"}
+    PUBLIC_REF_FIXED = {"927-记忆库总览.md", "926-模块标题.md", "928-路由详表.md"}
     # 2026-10-26 她定的：918-架构大纲 是内部总图（待办、决策、提交号太多），不进公开包。
     PUBLIC_REF_EXCLUDE = {"918-架构大纲.md"}
     if ref_target.is_dir():
@@ -474,7 +474,7 @@ def main() -> int:
         # 2026-10-27 批 M：PACKINFO 的计数按实际产物核一遍——白名单剔除之后
         # 包里真留下的 references/*.md 必须正好等于 keep + blank + reset
         # （`926`/`927` 两份索引不参与计数，跟上面统计口径保持一致）。
-        counted = [f for f in ref_target.glob("*.md") if f.name not in ("926.md", "927.md")]
+        counted = [f for f in ref_target.glob("*.md") if f.name not in ("926-模块标题.md", "927-记忆库总览.md")]
         if len(counted) != stat["keep"] + stat["blank"] + stat["reset"]:
             raise SystemExit(
                 f"❌ references 计数与实际产物不符：包里 {len(counted)} 个，"
@@ -527,13 +527,13 @@ def main() -> int:
                 copied += 1
             persona_note = f"人格模板 {copied} 份（persona/）"
 
-    # 2026-10-24：927.md 是从主库复制过来的，里面列着 55 个模块（01 基本背景、10 健康、
+    # 2026-10-24：927-记忆库总览.md 是从主库复制过来的，里面列着 55 个模块（01 基本背景、10 健康、
     # 12a 英语…全是私人内容）。进包必须按包里真实剩下的模块重建，只留 90–99 + 协议件。
-    cat = ref_target / "927.md"
+    cat = ref_target / "927-记忆库总览.md"
     if cat.exists():
         rows = []
         for f in sorted(ref_target.glob("*.md")):
-            if f.name in ("927.md", "926.md"):
+            if f.name in ("927-记忆库总览.md", "926-模块标题.md"):
                 continue
             txt = read(f)
             title = front_field(txt, "title", f.stem).strip('"') or f.stem
@@ -555,11 +555,11 @@ def main() -> int:
         write(cat, head + "\n".join(rows) + "\n")
         print(f"   CATALOG 已按包内模块重建：{len(rows)} 个")
 
-    # 928.md：体检靠它核对模块是否登记（同 framework 侧，见那里的注释）。
+    # 928-路由详表.md：体检靠它核对模块是否登记（同 framework 侧，见那里的注释）。
     detail = ["# 路由详表", "",
               "> 由 `tools/pack.py` 按包内模块生成，别手改。", "",
               "| 模块 | 标题 |", "| --- | --- |"]
-    skip = {"927.md", "926.md", "928.md", "923.md", "925.md", "924.md"}
+    skip = {"927-记忆库总览.md", "926-模块标题.md", "928-路由详表.md", "923-巡检记录.md", "925-复核清单.md", "924-合并候选清单.md"}
     for f in sorted(ref_target.glob("*.md")):
         if f.name in skip:
             continue
@@ -569,7 +569,7 @@ def main() -> int:
         txt = read(f)
         title = front_field(txt, "title", stem).strip('"') or stem
         detail.append(f"| `{stem}` | {title} |")
-    write(ref_target / "928.md", "\n".join(detail) + "\n")
+    write(ref_target / "928-路由详表.md", "\n".join(detail) + "\n")
 
     # tools/recall_eval.py：评测集必须跟着包内模块走（2026-10-24 新设备演练）。
     # 主库的题引用 78/27/22/24… 这些模块分发包里根本不存在，新用户跑出来的

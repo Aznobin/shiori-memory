@@ -11,7 +11,7 @@
   5. 路径写法          memory/303-服务器与隧道.md 里的模块号
   6. 命令参数          python tools/memread.py "302" 里的模块号
   7. 模块号:行号        `89:<行号>` → `813:<行号>`（只换数字模块号；`_巡检记录:<行号>` 这类非数字模块名按裁定不动）
-  8. 表格首格裸模块号  只认 `925.md`（99-架构大纲 / _合并候选 的首格是行序号，按裁定不换且只报不改）
+  8. 表格首格裸模块号  只认 `925-复核清单.md`（99-架构大纲 / _合并候选 的首格是行序号，按裁定不换且只报不改）
 
 绝不裸串替换：日期、时间、提交号、版本号、行号一律不碰。
 """
@@ -26,7 +26,7 @@ DEFAULT_MAP = Path(r"%USERPROFILE%\Desktop\Shiori-编号映射草表.md")
 DEFAULT_ROOT = Path(r"%USERPROFILE%\.agents\skills\user-memory")
 
 # 生成物 / 历史文件：只读不改（`921` 变更日志的历史行按旧号保留；`927` / `928` 是生成物）
-SKIP_FILES = {"921.md", "927.md", "928.md"}
+SKIP_FILES = {"921-变更日志.md", "927-记忆库总览.md", "928-路由详表.md"}
 SKIP_DIRS = {".git", "fragments", "dist", "__pycache__", "archive", "node_modules", "state"}
 SCAN_SUFFIXES = {".md", ".py", ".ps1", ".mjs", ".json", ".txt"}
 ROOT_FILES = ("SKILL.md", "README.md")
@@ -245,8 +245,8 @@ class Plan:
                 m.group(0) if not m.group("old").isdigit() else self.mapping[m.group("old")] + ":" + m.group("ln")
             ),
         )
-        # 8. 表格首格裸模块号 —— 只认 `925.md`（99-架构大纲 / _合并候选 的首格是行序号，按裁定不换）
-        if path.name in ("925.md", "925-复核清单.md"):
+        # 8. 表格首格裸模块号 —— 只认 `925-复核清单.md`（99-架构大纲 / _合并候选 的首格是行序号，按裁定不换）
+        if path.name in ("925-复核清单.md", "925-复核清单.md"):
             cell_pat = re.compile(rf"^(?P<pre>\|\s*)(?P<old>{alt})(?P<post>\s*\|)", re.M)
             text = self._sub(
                 text,
@@ -296,7 +296,7 @@ class Plan:
 
         裁定（2026-10-27）：
           - `模块号:行号`：数字模块号要换，非数字模块名不动（见 adjudicated_scan）
-          - 表格首格裸编号：`925.md` 是模块号要换；99-架构大纲 / _合并候选 是行序号，
+          - 表格首格裸编号：`925-复核清单.md` 是模块号要换；99-架构大纲 / _合并候选 是行序号，
             保持原样但仍列在报告里（就是这里报出来的 suspicious）
         """
         alt = "|".join(boundary(o) for o in self.olds)
@@ -306,7 +306,7 @@ class Plan:
             self.suspicious.append((path, line, f"wiki:{m.group(0)[:60]}"))
         if path.suffix == ".md":
             pat = re.compile(rf"^\|\s*(?P<old>{alt})\s*\|", re.M)
-            if path.name in ("925.md", "925-复核清单.md"):
+            if path.name in ("925-复核清单.md", "925-复核清单.md"):
                 return  # 该文件首格是模块号，由 rewrite_text 换掉
             for m in pat.finditer(text):
                 line = text.count("\n", 0, m.start()) + 1

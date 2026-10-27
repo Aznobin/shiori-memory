@@ -4,6 +4,9 @@
 规则（她 2026-10-26 定）：末位为 0 的整数编号全部是骨架节点，禁止手写、
 禁止 agent 自动填充；内容模块只能占用末位非 0 的编号。
 
+目录归属：000–899 写 `memory/`，900–999 写 `references/`。
+`000-总索引.md` 不在这里生成，由 `tools/total_index.py` 负责。
+
 用法：
     python tools/skeleton_nodes.py            # 只生成缺失的骨架节点
     python tools/skeleton_nodes.py --force    # 重写全部骨架节点（会覆盖手改内容）
@@ -57,10 +60,18 @@ distribute: blank
 """
 
 
+def _target_dir(root: Path, mid: str) -> Path:
+    """内容分区（000–899）写 memory/，骨架协议分区（900–999）写 references/。"""
+    return root / ("references" if int(mid) >= 900 else "memory")
+
+
 def plan(root: Path) -> list[tuple[Path, str]]:
     out = []
     for mid, title in PARTITIONS.items():
-        target = root / "references" / f"{mid}-{title}.md"
+        if mid == "000":
+            # 000 是总索引，由 tools/total_index.py 生成；这里不写占位，避免覆盖真索引。
+            continue
+        target = _target_dir(root, mid) / f"{mid}-{title}.md"
         out.append((target, TEMPLATE.format(mid=mid, title=title, today=date.today().isoformat(), prefix=mid[:1])))
     return out
 
@@ -89,6 +100,8 @@ def plan_subclasses(root: Path) -> list[tuple[Path, str]]:
     for mid, title in PARTITIONS.items():
         if mid == "000":
             continue
+        # 子类占位仍留在 references/：现有 220-子类占位.md 等文件在这里，
+        # 迁移子类目录是单独的搬家步骤，不在本次“只改索引”范围内。
         folder = root / "references" / f"{mid}-{title}"
         prefix = mid[:1]
         for n in range(1, 10):

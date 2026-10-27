@@ -42,7 +42,7 @@ DROP_ROOT_FILES = ["ENTRY.md"]
 KEEP_DIRS = ["bin", "templates", "tools"]
 
 # references/ 只留协议件：_模板 / _待确认 / 变更日志 / CATALOG + 系统区 90–99（含 91a、92a）
-KEEP_REF_EXACT = {"926.md", "922.md", "921.md", "927.md"}
+KEEP_REF_EXACT = {"926-模块标题.md", "922-待确认inbox.md", "921-变更日志.md", "927-记忆库总览.md"}
 KEEP_REF_RE = re.compile(r"^9[0-9]a?-")
 
 # tools/ 里不进框架分支的：本机状态、缓存、私有人格包、她自己的私有脚本
@@ -89,19 +89,19 @@ WIN_HOME_RE = re.compile(r"(?i)\b[A-Z]:\\Users\\[^\\\s`'\"]+")
 
 # 配置里 scrub 之外，框架分支还要抹掉的私人标识
 EXTRA_SCRUB = {
-    "<笔记库>": "<笔记库>",
-    "<家目录>": "<家目录>",
-    "日记": "日记",
-    "笔记软件": "笔记软件",
-    "<你的笔记本>": "<你的笔记本>",
-    "%USERNAME%": "%USERNAME%",
-    "%USERNAME%": "%USERNAME%",
-    "<你的英文名>": "<你的英文名>",
-    "<你的英文名>": "<你的英文名>",
-    "<你的英文名>": "<你的英文名>",
-    "<你的账号>": "<你的账号>",
-    "<你的账号>": "<你的账号>",
-    "<项目>": "<项目>",
+    "Shizuku": "<笔记库>",
+    "Aurora": "<家目录>",
+    "每日总结": "日记",
+    "Obsidian": "笔记软件",
+    "Nyacat": "<你的笔记本>",
+    "17743": "%USERNAME%",
+    "Kriste": "%USERNAME%",
+    "Sylte": "<你的英文名>",
+    "Cliste": "<你的英文名>",
+    "希露特": "<你的英文名>",
+    "Azunoshibainu": "<你的账号>",
+    "Aznoshibainu": "<你的账号>",
+    "星涟": "<项目>",
     "<项目>": "<项目>",
     "用户": "用户",
 }
@@ -122,19 +122,19 @@ CODE_KEEP = [
 CODE_SCRUB = {
     "用户": "用户",
     "<项目>": "项目",
-    "<笔记库>": "notes",
-    "<家目录>": "home",
-    "笔记软件": "notes-app",
-    "日记": "daily",
-    "<你的笔记本>": "laptop",
-    "%USERNAME%": "user",
-    "%USERNAME%": "user",
-    "<你的英文名>": "yourname",
-    "<你的英文名>": "yourname",
-    "<你的英文名>": "yourname",
-    "<你的账号>": "youraccount",
-    "<你的账号>": "youraccount",
-    "<项目>": "proj",
+    "Shizuku": "notes",
+    "Aurora": "home",
+    "Obsidian": "notes-app",
+    "每日总结": "daily",
+    "Nyacat": "laptop",
+    "Kriste": "user",
+    "17743": "user",
+    "Sylte": "yourname",
+    "Cliste": "yourname",
+    "希露特": "yourname",
+    "Azunoshibainu": "youraccount",
+    "Aznoshibainu": "youraccount",
+    "星涟": "proj",
 }
 
 
@@ -188,7 +188,7 @@ def load_mapping() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     名字类：这个人是谁（账号名、外号、项目名、口头禅）——
       只用在文档里；代码文件上会把 `b"..."` 里的账号名 换成中文占位符，
       带 bytes 字面量当场 SyntaxError，字符串字面量则变成坏 URL。
-    长的先替换（`%USERPROFILE%\\Documents\\...` 必须先于 `%USERNAME%`）。
+    长的先替换（`%USERPROFILE%\\Documents\\...` 必须先于 `Kriste`）。
     """
     path_pairs: dict[str, str] = {}
     name_pairs: dict[str, str] = {}
@@ -389,9 +389,9 @@ def plan() -> tuple[list[tuple[str, bytes]], list[str], int]:
     # 版本号与两个协议件在产物里重写，不动主库
     out = [(rel, FRAMEWORK_VERSION.encode() + b"\n") if rel == "VERSION" else (rel, raw)
            for rel, raw in out]
-    out = [(rel, CHANGELOG_STUB.encode()) if rel == "references/921.md" else (rel, raw)
+    out = [(rel, CHANGELOG_STUB.encode()) if rel == "references/921-变更日志.md" else (rel, raw)
            for rel, raw in out]
-    out = [(rel, INBOX_STUB.encode()) if rel == "references/922.md" else (rel, raw)
+    out = [(rel, INBOX_STUB.encode()) if rel == "references/922-待确认inbox.md" else (rel, raw)
            for rel, raw in out]
     # 框架产物的 SKILL.md 用公开版（主库那份是私人口径，不进产物）
     pub_skill = ROOT / "framework-public" / "public-SKILL.md"
@@ -416,7 +416,7 @@ def plan() -> tuple[list[tuple[str, bytes]], list[str], int]:
         if pub_agents.is_file():
             out.append(("AGENTS.md", pub_agents.read_bytes()))
 
-    # 928.md：体检靠它核对「每个模块都登记进路由表」。SKILL.md 里的大类表是
+    # 928-路由详表.md：体检靠它核对「每个模块都登记进路由表」。SKILL.md 里的大类表是
     # 裸编号（`903` `904`），匹配不上体检要求的 `903-名字` 形态；骨架又不含主库的小类详表，
     # 结果新用户第一次体检 20 个模块全判「未登记」（0.3.5 实测，红得跟坏了似的）。
     detail = ["# 路由详表", "",
@@ -433,8 +433,8 @@ def plan() -> tuple[list[tuple[str, bytes]], list[str], int]:
     for stem, note in (("922", "收件箱，下划线开头不算模块"), ("921", "改动历史")):
         if any(rel == f"references/{stem}.md" for rel, _ in out):
             detail.append(f"| `{stem}` | {note} |")
-    out = [x for x in out if x[0] != "references/928.md"]
-    out.append(("references/928.md", ("\n".join(detail) + "\n").encode("utf-8")))
+    out = [x for x in out if x[0] != "references/928-路由详表.md"]
+    out.append(("references/928-路由详表.md", ("\n".join(detail) + "\n").encode("utf-8")))
 
     # manifest.json：给别人用的更新器靠它知道「哪些文件属于骨架、每个文件的 sha256 是多少」。
     # 只列上面已经定稿的文件；自己不进自己的清单（否则自引用算不出来）。
@@ -474,14 +474,14 @@ def clean_worktree() -> None:
 
 
 def changelog_summary(limit: int = 200) -> str:
-    """从主库 `references/921.md` 最新一行的「改动」列取一句摘要。
+    """从主库 `references/921-变更日志.md` 最新一行的「改动」列取一句摘要。
 
     为什么要有这个（2026-10-24 她问「为什么不写变更，都长一个样」）：
     原来 framework 分支每个提交的 message 都是同一个模板，光看 commit 列表
     完全看不出这次改了什么。版本号能对上，但「为什么改」对不上。
     变更日志里那行是人写的原因，直接搬进 commit body。
     """
-    p = ROOT / "references" / "921.md"
+    p = ROOT / "references" / "921-变更日志.md"
     try:
         lines = p.read_text(encoding="utf-8").splitlines()
     except OSError:

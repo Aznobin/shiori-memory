@@ -58,7 +58,7 @@ ROUTES: list[tuple[str, str, str, str]] = [
     # 挂在这一行末尾让三个脚本的「模块数」对齐；`926`/`927`/`925`/`923`/`928` 两边都排除。
     ("系统·节律", "`902` `901` `911` `922` `921`", "自维护巡检、重复问题台账、静默门；待确认收件箱与改动史", "●维护时才读；查「以前改过什么」读 `921`"),
     # 末位为 0 的骨架节点：程序生成、只放结构，登记进来只为 memory_check 的文件/路由双向一致
-    ("系统·骨架节点", "`000` `100` `200` `300` `400` `500` `600` `700` `800` `900`", "程序生成的骨架占位：只放结构，不放记忆内容", "不用读；改结构跑 `tools/skeleton_nodes.py`"),
+    ("系统·骨架节点", "`000` `100` `200` `300` `400` `500` `600` `700` `800` `900`", "程序生成的骨架占位：只放结构，不放记忆内容", "读 `000-总索引.md` 看全局结构；改结构跑 `tools/skeleton_nodes.py`"),
 ]
 
 
@@ -92,6 +92,13 @@ def meta_module_ids() -> set[str]:
     return set(META_MODULE_IDS)
 
 
+def mod_num(stem: str) -> str:
+    """文件名前缀里的模块号；`923-巡检记录` → `923`。协议件 2026-10-27 起带标题，
+    比较模块号时不能直接拿 stem 比，否则排除表全失效。"""
+    m = re.match(r"^(\d{2,3}[a-z]?)", stem)
+    return m.group(1) if m else stem
+
+
 def present_ids() -> dict[str, str]:
     """扫 `memory/` 与 `references/`，返回 {模块号或结构件名: 文件 stem}。
 
@@ -102,7 +109,7 @@ def present_ids() -> dict[str, str]:
     out: dict[str, str] = {}
     for p in sorted(module_files().values()):
         stem = p.stem
-        if stem in ("926", "927", "925", "923", "928", "924"):
+        if mod_num(stem) in ("926", "927", "925", "923", "928", "924", "929"):
             continue
         m = re.match(r"^(\d{2,3}[a-z]?)", stem)
         out[m.group(1) if m else stem] = stem
@@ -110,19 +117,19 @@ def present_ids() -> dict[str, str]:
 
 
 def write_detail() -> int:
-    """重建 references/928.md（体检按「第一格是模块全名」核对登记）。"""
+    """重建 references/928-路由详表.md（体检按「第一格是模块全名」核对登记）。"""
     rows = ["# 路由详表", "",
             "> 本文件由 `tools/routes.py` 按实际模块文件生成，别手改。", "",
             "| 模块 | 标题 |", "| --- | --- |"]
     for p in sorted(module_files().values()):
         stem = p.stem
-        if stem in ("926", "927", "925", "923", "928", "924"):
+        if mod_num(stem) in ("926", "927", "925", "923", "928", "924"):
             continue
         head = p.read_text(encoding="utf-8")[:2000]
         m = re.search(r"(?m)^title:\s*(.+)$", head)
         title = (m.group(1).strip().strip('"') if m else stem)
         rows.append(f"| `{stem}` | {title} |")
-    (SKELETON_DIR / "928.md").write_text("\n".join(rows) + "\n", encoding="utf-8", newline="\n")
+    (SKELETON_DIR / "928-路由详表.md").write_text("\n".join(rows) + "\n", encoding="utf-8", newline="\n")
     return len(rows) - 5
 
 
@@ -151,7 +158,7 @@ def render() -> str:
     lines = [BEGIN, "| 大类 | 模块 | 装什么 | 怎么读 |", "| --- | --- | --- | --- |"]
     for name, keys, what, how in route_rows():
         lines.append(f"| {name} | {' '.join('`' + k + '`' for k in keys)} | {what} | {how} |")
-    lines.append(f"| — | 小类详表 | 每个模块一行（关键词 / 同义说法 / 敏感） | 在 `references/928.md`，需要时再读 |")
+    lines.append(f"| — | 小类详表 | 每个模块一行（关键词 / 同义说法 / 敏感） | 在 `references/928-路由详表.md`，需要时再读 |")
     lines.append(END)
     return "\n".join(lines)
 

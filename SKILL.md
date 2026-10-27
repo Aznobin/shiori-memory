@@ -21,8 +21,8 @@ description: 纯 Markdown 的长期记忆库（模块化 + 片段检索）。涉
 ## 1. 三条硬规矩
 
 1. **`references/` 是唯一真源** —— `fragments/` 每次 `build` 全删重建，手改片段目录下一轮就没了
-2. **每次写入都要落到一个具体模块**，并在 `921.md` 补一行（日期 + 改了什么）
-3. **没被确认的推测先扔 `922.md`**，不当事实用；拿不准就写进去等下次确认
+2. **每次写入都要落到一个具体模块**，并在 `921-变更日志.md` 补一行（日期 + 改了什么）
+3. **没被确认的推测先扔 `922-待确认inbox.md`**，不当事实用；拿不准就写进去等下次确认
 
 ## 2. 开局三步
 
@@ -42,6 +42,7 @@ python tools/frag.py search 关键词   # 2. 查命中的片段
 | 范围 | 装什么 |
 | --- | --- |
 | `001`–`813` | **主题模块**，你自己的：偏好、背景、学习线、项目、环境……怎么分由你定 |
+| `926` `922` `923` `925` | 结构件，下划线开头，不算模块 |
 | `921` `927` | 结构件，不带编号 |
 
 <!-- MODULES:BEGIN 由 tools/framework.py 按包内 references 生成，别手改 -->
@@ -68,14 +69,14 @@ python tools/frag.py search 关键词   # 2. 查命中的片段
 | `921` | 结构件 |
 <!-- MODULES:END -->
 
-新增主题模块往后接号，别插空号；`927.md` 由 `python tools/catalog.py` 生成，别手改。
+新增主题模块往后接号，别插空号；`927-记忆库总览.md` 由 `python tools/catalog.py` 生成，别手改。
 
 **人格 / 语气 / 说话风格要不要建、建在哪个号，由你决定** —— 这个库不预设任何口吻。
 
 ## 4. 建第一个模块
 
 ```bash
-cp references/926.md memory/001-我的偏好.md
+cp references/926-模块标题.md memory/001-我的偏好.md
 python tools/frag.py build
 ```
 
@@ -138,6 +139,6 @@ python tools/update.py rollback  # 换坏了退回去
 
 ## 10. 版本
 
-`{{VERSION}}` · MIT License · by Firin Chan & Aznobin
+`{{VERSION}}` · MIT License · by Firin Chan & <你的账号>
 
 适配范围：在 DeepSeek Harness（Windows 11 + Python 3.12）上验证过；别的助手要用得自己接，没在别处验证。

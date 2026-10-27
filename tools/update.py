@@ -320,13 +320,13 @@ def is_framework_path(rel: str) -> bool:
 # 包里只有表头，apply 一覆盖她 24 条日志全没了；`927` 是主库目录，覆盖成 55 模块。
 # 这些东西的正确归属是「用户的库」，不是「骨架」。
 USER_OWNED = (
-    "references/921.md",
-    "references/927.md",
-    "references/923.md",
-    "references/922.md",
-    "references/928.md",
-    "references/924.md",
-    "references/926.md",
+    "references/921-变更日志.md",
+    "references/927-记忆库总览.md",
+    "references/923-巡检记录.md",
+    "references/922-待确认inbox.md",
+    "references/928-路由详表.md",
+    "references/924-合并候选清单.md",
+    "references/926-模块标题.md",
 )
 
 

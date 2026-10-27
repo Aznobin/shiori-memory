@@ -93,7 +93,7 @@ def module_ids() -> set[str]:
     for num, path in module_files().items():
         if MOD_FILE_RE.match(path.name):
             ids.add(num)
-    # 2026-10-24：收件箱 `922.md` 不以模块号开头，但它是合法的写入目标
+    # 2026-10-24：收件箱 `922-待确认inbox.md` 不以模块号开头，但它是合法的写入目标
     # （拿不准的内容先进收件箱），手册 §3 教的就是这个。漏了它 → 整批被闸门拒。
     if resolve_module("922") is not None:
         ids.add("922")

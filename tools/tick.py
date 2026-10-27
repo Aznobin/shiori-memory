@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """tick.py —— 巡检记录的「机器区」：一遍跑完体检 / 检索评测 / 仓库状态，把数字写进
-`references/923.md` 的 TICK 区块，手改正本区块会被下次运行覆盖。
+`references/923-巡检记录.md` 的 TICK 区块，手改正本区块会被下次运行覆盖。
 
 用法：
-    python tools/tick.py           # 跑一遍并写回 923.md
+    python tools/tick.py           # 跑一遍并写回 923-巡检记录.md
     python tools/tick.py --dry     # 只打印，不落盘
 
-为什么要有它（2026-10-24，大纲步骤 10）：`923.md` 的数字是人手抄的，
+为什么要有它（2026-10-24，大纲步骤 10）：`923-巡检记录.md` 的数字是人手抄的，
 抄一次就再没对过——同一批数字在三处互相矛盾（19/22 86.4% vs 18/22 81.8%、
 切片组 153 vs 152、提交 223 vs 242）。数字由脚本现跑现写，就不存在「抄错」。
 """
@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from paths import SKELETON_DIR  # noqa: E402
 
-RECORD = SKELETON_DIR / "923.md"
+RECORD = SKELETON_DIR / "923-巡检记录.md"
 BEGIN = "<!-- TICK:BEGIN 机器生成，手改会被下次运行覆盖 -->"
 END = "<!-- TICK:END -->"
 

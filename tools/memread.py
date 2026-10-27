@@ -53,6 +53,8 @@ def module_files() -> dict[str, Path]:
         candidates += sorted(EXTRA_REF.glob("*.md"))
     for p in candidates:
         meta = parse_meta(p.read_text(encoding="utf-8", errors="replace"))
+        if meta.get("kind") == "skeleton-node":      # 骨架占位不进读取候选
+            continue
         mid = (meta.get("id") or p.name.split("-")[0]).strip('"')
         out.setdefault(mid, p)
     return out

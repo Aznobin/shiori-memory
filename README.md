@@ -18,7 +18,7 @@
 
 <p align="center">给 AI 编码助手用的纯 Markdown 长期记忆库：片段化存储、关键词路由、时间衰减、写入闸门。</p>
 
-<p align="center">by Firin Chan & Aznobin</p>
+<p align="center">by Firin Chan & <你的账号></p>
 
 > **适配范围**：目前只在 **DeepSeek Harness（DSH）** 上验证过（Windows 11 + Python 3.12），技能目录、脚本路径、注入方式都按 DSH 的规矩来。如果希望用在别的助手上，需要您自己做一点适配——这一版没有在别处验证过。
 
@@ -80,7 +80,7 @@ AI 助手最常被抱怨的毛病是**失忆**：换个对话就不认识你了�
 
 **1. 解压** —— 下载 zip，解到任意目录（比如 `%USERPROFILE%\shiori-memory`）：
 
-> https://github.com/Aznobin/shiori-memory/archive/refs/heads/master.zip
+> https://github.com/<你的账号>/shiori-memory/archive/refs/heads/master.zip
 
 **2. 复制一个文件** —— 把库根那份 `AGENTS.md` 复制到你的工作目录根：
 
@@ -112,7 +112,7 @@ macOS/Linux   cp AGENTS.md ~/你的工作目录/
 装了 git 的话：
 
 ```bash
-git clone https://github.com/Aznobin/shiori-memory.git
+git clone https://github.com/<你的账号>/shiori-memory.git
 ```
 
 之后建议推一份到自己的私有仓库：换机器克隆下来就能接着用，改坏了也能回滚。公开库只放框架，请不要放记忆。
@@ -124,10 +124,10 @@ SKILL.md            # 主入口：库内的协议与路由，告诉模型先读�
 AGENTS.md           # 记忆库入口：复制到你的工作目录根，新会话靠它找到这里
 README.md           # 你正在看的这份
 references/         # 唯一的真源：按主题分的模块文件（01-99）
-  926.md          # 新模块照这个写
-  922.md        # 没想好的先扔这里
-  921.md       # 改了什么，一条一行
-  927.md        # 模块清单
+  926-模块标题.md          # 新模块照这个写
+  922-待确认inbox.md        # 没想好的先扔这里
+  921-变更日志.md       # 改了什么，一条一行
+  927-记忆库总览.md        # 模块清单
   90-99             # 机制类：检索、打包、注入、安全、架构
 templates/          # hooks 与各主机变体的模板
 tools/              # 全部脚本，零第三方依赖
@@ -256,13 +256,13 @@ Copy-Item -Recurse 解压出来的目录\* %USERPROFILE%\.agents\skills\shiori-m
 ## 框架版怎么取
 
 **不用 git**（推荐）：浏览器打开
-`https://github.com/Aznobin/shiori-memory/archive/refs/heads/master.zip`
+`https://github.com/<你的账号>/shiori-memory/archive/refs/heads/master.zip`
 下载解压即可。
 
 **用 git**：
 
 ```bash
-git clone https://github.com/Aznobin/shiori-memory.git
+git clone https://github.com/<你的账号>/shiori-memory.git
 ```
 
 想固定某个版本可以用 tag：`git checkout framework-v1.0.0`（tag 名里的版本号会随发行更新）。
@@ -291,4 +291,4 @@ python tools/update.py rollback         # 换坏了退回去（自动备份在 s
 
 ## 授权
 
-[MIT License](LICENSE)，Copyright (c) 2026 Firin Chan & Aznobin。
+[MIT License](LICENSE)，Copyright (c) 2026 Firin Chan & <你的账号>。

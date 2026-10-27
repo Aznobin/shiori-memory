@@ -3,7 +3,7 @@
 
 用法：
   python tools/decay.py           算一遍，写 state/decay.json（同一天重跑，文件字节不变）
-  python tools/decay.py --pairs   出 references/924.md（只列候选，不合并）
+  python tools/decay.py --pairs   出 references/924-合并候选清单.md（只列候选，不合并）
   python tools/decay.py --show    只看统计，不写盘
 
 口径（2026-10-23 定，别自己调）：
@@ -37,7 +37,7 @@ from paths import SENSITIVE_MODULE_IDS, SKELETON_DIR  # noqa: E402
 
 INDEX = ROOT / "fragments" / "index.json"
 STATE = ROOT / "state" / "decay.json"
-CANDIDATES = SKELETON_DIR / "924.md"
+CANDIDATES = SKELETON_DIR / "924-合并候选清单.md"
 
 HALF_LIFE_DAYS = 90.0      # 半衰期（Lead 2026-10-23 钉死：历史不满 30 天前不许调）
 COLD_BELOW = 0.5           # recency 低于这个值算冷
@@ -261,7 +261,7 @@ def _pairs_doc(today: date | None = None) -> tuple[str, dict]:
         'sensitive: "false"',
         'always: "false"',
         'maintain_only: "true"',
-        # 2026-10-26 引号链：日期不裹引号（`924.md` 是 decay.py 自己重写的生成物，
+        # 2026-10-26 引号链：日期不裹引号（`924-合并候选清单.md` 是 decay.py 自己重写的生成物，
         # 带引号会被 memory_check 的 updated 正则判成「没有可解析的 updated 日期」）
         f'updated: {day}',
         "distribute: drop",
@@ -388,7 +388,7 @@ def _selftest() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="冷热分层与合并候选（只读侧）")
-    ap.add_argument("--pairs", action="store_true", help="只出 references/924.md")
+    ap.add_argument("--pairs", action="store_true", help="只出 references/924-合并候选清单.md")
     ap.add_argument("--show", action="store_true", help="只打印统计，不写 state")
     ap.add_argument("--selftest", action="store_true", help="自检 --pairs 的 updated 引号链（不写盘）")
     ap.add_argument(
