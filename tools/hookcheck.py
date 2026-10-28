@@ -242,6 +242,12 @@ def state_files(sess_id=""):
 
 
 def main():
+    # GBK 控制台下 print('⚠') 会 UnicodeEncodeError 把整轮判据打成 exit 1；
+    # 只放宽编码错误处理，不改编码本身，免得不带 PYTHONIOENCODING 时崩（2026-10-28）。
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", default="")
     ap.add_argument("--tail", type=int, default=6)
