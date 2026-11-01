@@ -149,9 +149,24 @@ def _assert_meta_docs(ids: set[str]) -> None:
         known = set(routes.present_ids())
         src = "模块文件"
     missing = sorted(i for i in ids if i not in known)
-    if missing:
+    # 2026-11-02 开箱实测 D19：发行包按 `distribute: drop` 剔掉了 `304`/`918`，
+    # 于是每个新用户第一次跑 recall.py 都在这里 SystemExit(2)，自动注入整条死掉。
+    # 规则改成：可缺席编号（见 routes.META_MODULE_IDS_OPTIONAL）**本机确实没有这个模块**
+    # 时只提醒、不阻断；本机有文件却没进索引，照旧硬失败——重编号错误还是当场炸。
+    import routes as _routes
+    optional_ids = set(getattr(_routes, "META_MODULE_IDS_OPTIONAL", ()))
+    local_files = set(_routes.present_ids())
+    optional = sorted(i for i in missing if i in optional_ids and i not in local_files)
+    hard = [i for i in missing if i not in optional]
+    if optional:
         print(
-            f"❌ META_DOCS 校验失败：{'、'.join(missing)} 不在当前索引里（核对来源：{src}）。"
+            f"⚠️ 元规则模块 {'、'.join(optional)} 按 distribute: drop 未随包分发，"
+            "本机没有，只跳过它们的降权。",
+            file=sys.stderr,
+        )
+    if hard:
+        print(
+            f"❌ META_DOCS 校验失败：{'、'.join(hard)} 不在当前索引里（核对来源：{src}）。"
             "重编号后必须同步 tools/routes.py 的 META_MODULE_IDS。",
             file=sys.stderr,
         )

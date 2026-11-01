@@ -80,6 +80,15 @@ META_MODULE_IDS: tuple[str, ...] = (
 )
 
 
+# 发行包里不会出现的元规则编号（2026-11-02 · 开箱实测 D19）：
+# `memory/304-DSH模块清单.md` 与 `references/918-架构大纲.md` 的 frontmatter 是
+# `distribute: drop`，打包时被剔除，但编号仍留在 META_MODULE_IDS 里做降权。
+# 结果是：每个新用户装完第一次跑 `recall.py` 就 `SystemExit(2)`，整条自动注入全死。
+# 这里把它们列为「可缺席」——本机存在就必须被索引（重编号照样当场炸），
+# 本机压根没有这个模块就不再阻断启动。
+META_MODULE_IDS_OPTIONAL: tuple[str, ...] = ("304", "918")
+
+
 def meta_module_ids() -> set[str]:
     """返回元规则模块集合；有编号在 ROUTES 表里找不到就直接报错退出。
 
