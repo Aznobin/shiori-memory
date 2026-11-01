@@ -144,23 +144,38 @@ def main(argv: list[str]) -> int:
     ranked = []
     for cat, ids, what, how in route_rows():
         ranked.append((score_route(qts, cat, what, how, ids, files), cat, ids, what, how))
-    # 模块级直接命中（自己的 title / keywords）比大类的泛词准得多：
+    # 模块级直接命中（title / keywords / 小节标题）比大类的泛词准得多：
     # 「测试模块」「我是谁」这类词会先被大类里的「模块/我」吞掉，读回来一堆不相干的模块。
     # 2026-10-24 新设备演练：5/5 查不到刚写的模块，根因就在这里。
+    # 2026-11-02 开箱战役（task-25 缺陷 B）：原来只看 p.stem / title / keywords——
+    # 「我是谁」其实是 001 的小节标题，「小圆」只活在 401 的正文里，两条都查不到，
+    # 于是「刚写进去就查不到」。现在分两级：标题级（含 `## ` 小节标题）优先，
+    # 正文级只在标题级和大类表都没命中时兜底，且只认长度 ≥2 的词（单字命中太吵）。
     mod_hits = []
+    body_hits = []
     for mid, p in files.items():
-        meta = parse_meta(p.read_text(encoding="utf-8", errors="replace")[:2000])
-        hay = f"{p.stem} {meta.get('title', '')} {meta.get('keywords', '')}"
+        text = p.read_text(encoding="utf-8", errors="replace")
+        meta = parse_meta(text[:2000])
+        heads = " ".join(ln for ln in text.splitlines() if ln.startswith("## "))
+        hay = f"{p.stem} {meta.get('title', '')} {meta.get('keywords', '')} {heads}"
         hit = sum(1 for tk in qts if tk and tk in hay)
         if hit:
             mod_hits.append((hit, mid))
+            continue
+        long_qts = [tk for tk in qts if len(tk) >= 2]
+        body = sum(1 for tk in long_qts if tk and tk in text)
+        if body:
+            body_hits.append((body, mid))
     mod_hits.sort(key=lambda x: -x[0])
+    body_hits.sort(key=lambda x: -x[0])
 
     ranked.sort(reverse=True)
     if mod_hits and mod_hits[0][0] >= 2:
-        best = [(99, "本库模块", [mod_hits[0][1]], "按 title / keywords 直接命中", "")]
+        best = [(99, "本库模块", [mod_hits[0][1]], "按 title / keywords / 小节标题直接命中", "")]
     else:
         best = [r for r in ranked if r[0] >= 3][:2]
+    if not best and body_hits:
+        best = [(97, "本库模块", [body_hits[0][1]], "按模块正文命中兜底（弱信号）", "")]
 
     if not best:
         # 大类表零命中 → 按模块自己的 title / keywords / 文件名兜底。

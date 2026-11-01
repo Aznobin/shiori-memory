@@ -42,6 +42,26 @@ WHOLE_MODULE_IDS = frozenset({"801"})                     # 必须整片到达�
 MAIN_SCORE_MODULE_IDS = frozenset({
     "813", "811", "812", "201", "202", "301", "902", "809", "808", "903", "802", "915", "917", "918",
 })
+# 主片段归属（2026-11-02 开箱战役 task-26 加）：机制白名单之外，用户自己长出来的号段
+# 也算主片段。原先只有上面这 14 个机制号，用户新建的 001/101/501… 永远落 second 档
+# → `frag.py pack_doc` 的主片段池（main_pool）与 `morning` 开场包都捡不到它们。
+USER_ID_CEILING = 699                                     # 0xx–6xx：身份/日常/学习/项目/人际/偏好/约定
+MORNING_USER_MODULE_IDS = ("001", "003", "101")           # 开场包必带的身份类模块（库里存在就带）
+
+
+def is_main_module(mod_id: str) -> bool:
+    """这个模块号算不算「主片段」：机制白名单照旧，0xx–6xx 一律算。
+
+    规则只看编号，不读磁盘、不加依赖：机制白名单里的（语气/立场/账/学习习惯/项目主线/
+    协议件）算；0xx–6xx 这几个分区就是「她这个人」的地盘，用户自己长出来的号一律算；
+    7xx–9xx 仍按白名单（8xx 只有白名单里的语气与账类进去，9xx 是协议件）。带字母后缀
+    的子模块（如 301a）按主号段算；末位 0 的骨架节点与 sensitive 号由 frag.build 另行排除。
+    """
+    mid = str(mod_id).strip()
+    if mid in MAIN_SCORE_MODULE_IDS:
+        return True
+    base = mid.rstrip("abcdefghijklmnopqrstuvwxyz")
+    return base.isdigit() and 0 < int(base) <= USER_ID_CEILING
 DIARY_MODULE_ID = "101"                                   # 日记形态的内容默认归这里
 DIARY_NOISE_MODULE_IDS = frozenset({
     "302", "902", "903", "904", "905", "906", "907", "908", "911", "912", "913", "915", "916", "917", "918",
@@ -51,7 +71,8 @@ STRUCTURAL_MODULE_IDS = frozenset({"921", "922", "923", "925", "927", "929"})   
 BANNED_DOC_IDS = frozenset({"701", "102", "changelog"})   # 不进检索：隐私 / 健康 / 变更日志
 PERSONA_MODULE_ID = "813"                                 # 语气与交流（非运维问句时降权）
 HARD_LAYER_MODULE_ID = "809"                              # 独立人格与立场：硬塞层正文来源
-MORNING_MODULE_IDS = ("813", "809", "808")                # 开场包：语气 / 立场 / 我自己的账
+MORNING_MODULE_IDS = MORNING_USER_MODULE_IDS + ("813", "809", "808")
+                                                          # 开场包：先她是谁，再语气 / 立场 / 我自己的账
 
 # 编号分区（2026-10-26 改口径，三位数）：片段 tag / 路由 / 检索共用一张表
 PARTITIONS: list[tuple[int, int, str]] = [

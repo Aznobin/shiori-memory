@@ -11,7 +11,7 @@
 
 设计约定：
   - 一个片段 = 一个文件，放在 fragments/<模块>/<id>_<序号>_<短标题>.md
-  - 主片段（weight=main）：always 模块、语气、学习习惯、项目主线
+  - 主片段（weight=main）：机制白名单 + 她自己的号段（0xx–6xx，见 paths.is_main_module）
   - 次片段（weight=second）：其余；sensitive 模块默认不进 pack
   - 读取协议：先读 INDEX.md 列表 → 主片段精读 → 非主片段随机抽读
 """
@@ -39,6 +39,7 @@ from paths import (  # noqa: E402
     ROOT, module_paths, rel, resolve_module,
     HARD_LAYER_MODULE_ID, MAIN_SCORE_MODULE_IDS, MORNING_MODULE_IDS,
     SELF_MODULE_IDS, SENSITIVE_MODULE_IDS, USER_MODULE_IDS, WHOLE_MODULE_IDS,
+    is_main_module, MORNING_USER_MODULE_IDS,
 )
 
 FRAG = ROOT / "fragments"
@@ -61,7 +62,7 @@ COMMENT_RE = re.compile(r"<!--.*?-->")
 SPEC_RE = re.compile(r"<!--\s*S:[^>]*-->")
 MIN_CHARS = 20          # 太短的段落并入上一片段
 SENSITIVE_MODULES = SENSITIVE_MODULE_IDS
-MAIN_MODULES = MAIN_SCORE_MODULE_IDS
+MAIN_MODULES = MAIN_SCORE_MODULE_IDS      # 机制白名单；判定统一走 paths.is_main_module()
 SKIP_FILES = {"927-记忆库总览.md", "921-变更日志.md"}
 # 2026-10-24：`stats` 报的「模块数」改成文件口径，与 catalog.py / memory_check.py 相等（23）；
 # 本文件只切其中能切的那部分（`921` 按日志处理、不切片），所以另报一个「有片段」的数。
@@ -520,7 +521,7 @@ def build() -> int:
         if mod_id.isdigit() and mod_id.endswith("0"):
             continue
         mod_title = meta.get("title") or path.stem
-        weight = "main" if mod_id in MAIN_MODULES else "second"
+        weight = "main" if is_main_module(mod_id) else "second"
         sensitive = (mod_id in SENSITIVE_MODULES) or meta.get("sensitive", "false").lower() == "true"
         distribute = meta.get("distribute", "keep")
         mod_kw = tokens_of(" ".join(kw_list))
@@ -779,13 +780,95 @@ def query_tokens(q: str) -> set[str]:
     return {t for t in tokens_of(q) if t not in STOPWORDS}
 
 
+# 2026-11-02 开箱战役（task-25 缺陷 A）：中文按字符二元组切词，索引里**没有单字词条**
+# （实测本机库词表 36037 条里含「猫」的单字词 0 个、二字词 168 个），于是查询只给一个字
+# （「猫」「喝」）时 base 只剩一个单字 token，一条都撞不上，片段层恒零命中；
+# 而 `search 猫咪` 这类两字查询正常。这里做「单字 → 含它的词」的回捞：
+# 只在字面零命中时兜底，权重比同义扩展再低一档、每个单字的词数封顶，避免倒出半个库。
+SINGLE_BACKOFF_W = 0.30    # 单字回捞词的权重：只补召回，不许盖过原话
+SINGLE_BACKOFF_CAP = 24    # 每个单字最多回捞多少条索引词
+
+# 回捞时丢掉纯虚词组合（「的猫」「了猫」这类词条对检索没用）
+_FUNCTION_CHARS = set("的了在是和与我你他她它这那")
+
+
+def single_char_seeds(tokens: set[str]) -> list[str]:
+    """查询里长度为 1 的汉字词 —— 它们是回捞的种子，本身不是查询词。"""
+    return sorted(t for t in tokens if len(t) == 1 and CJK_RE.fullmatch(t))
+
+
+def backoff_tokens(seed: str, idx: list[dict]) -> list[str]:
+    """单字种子 → 索引里真实存在、含这个字的词（按 df 降序，封顶 CAP 条）。"""
+    df: dict[str, int] = {}
+    for item in idx:
+        for t in set(item.get("tokens", [])):
+            if seed not in t or t == seed:
+                continue
+            other = t.replace(seed, "")
+            if other and any(ch in _FUNCTION_CHARS for ch in other):
+                continue
+            df[t] = df.get(t, 0) + 1
+    ranked = sorted(df.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [t for t, _ in ranked[:SINGLE_BACKOFF_CAP]]
+
+
+def _vocab(idx: list[dict]) -> set[str]:
+    """索引里出现过的全部词。"""
+    out: set[str] = set()
+    for item in idx:
+        out.update(item.get("tokens", []))
+    return out
+
+
+def missing_seeds(tokens: set[str], idx: list[dict]) -> list[str]:
+    """查询里在索引中查不到的词（单字也算）—— 它们是字面回捞的种子。
+
+    「猫咪」这种词库没收进来的词同样需要兜底：它切不出别的词，字面查必然零命中。
+    """
+    vocab = _vocab(idx)
+    return sorted(t for t in tokens if t not in vocab and CJK_RE.search(t))
+
+
+def backoff_from(seed: str, idx: list[dict]) -> list[str]:
+    """一个种子 → 回捞词：单字直接回捞；多字词按「字」回捞（「猫咪」→ 猫 / 咪）。"""
+    if len(seed) == 1:
+        return backoff_tokens(seed, idx)
+    out: list[str] = []
+    for ch in dict.fromkeys(seed):
+        out.extend(backoff_tokens(ch, idx))
+    return out
+
+
 EXPAND_W = 0.45   # 同义扩展词的权重：只加召回，不许盖过她原话
+
+# 2026-11-02 开箱战役（task-25 加办 A）：同义词表是 tools/synonyms.py 里的
+# 硬编码 ALIAS_GROUPS，钩子本身是接上的（synonyms.expand 就在 expand_query 里用），
+# 缺的是「班级 / 带班 / 两个班」这类话题组的条目 —— 她换个说法说话就查不到。
+# 正宗主应写进 tools/synonyms.py 的 ALIAS_GROUPS（不属本次允许改动范围），
+# 这里先补一张补充表顶上，语义与 synonyms.expand 一致：出现组员就补整组。
+EXTRA_ALIAS_GROUPS: list[tuple[str, ...]] = [
+    ("两个班", "班级", "带班"),   # rig7 T061：库里写「两个班」，她要求（原话已移除）
+]
+# 别往组里塞「3班 / 5班」这种数字编号说法：切词后它会产出单字「班」与 ASCII「3」「5」，
+# 泛得能把整个库拽进来（实测 rig12 的 `917_002` 因「两个真病根」被误命中）。
+
+
+def _extra_expand(q: str) -> set[str]:
+    """补充别名表的扩展（与 synonyms.expand 同语义）。"""
+    ql = q.lower()
+    extra: set[str] = set()
+    for group in EXTRA_ALIAS_GROUPS:
+        if any(w.lower() in ql for w in group):
+            extra.update(group)
+    return extra
 
 
 def expand_query(q: str) -> tuple[set[str], dict[str, float]]:
     """原话切词 + 同义扩展词（权重打折）。返回 (全部查询词, 每词权重)。"""
     base = query_tokens(q)
-    extra = query_tokens(" ".join(synonyms.expand(q))) - base
+    extra = query_tokens(" ".join(synonyms.expand(q)))
+    extra |= query_tokens(" ".join(_extra_expand(q)))
+    extra -= base
     weights = {t: 1.0 for t in base}
     for t in extra:
         weights[t] = EXPAND_W
@@ -1050,13 +1133,54 @@ def cmd_search(args: argparse.Namespace) -> int:
     idx = load_index()
     idf = idf_map(idx)
     avg = avg_len(idx)
-    q, wq = expand_query(" ".join(args.terms))
+    terms = " ".join(args.terms)
+    q, wq = expand_query(terms)
+    base = query_tokens(terms)
+    alias_extra = query_tokens(" ".join(_extra_expand(terms))) - base
     hits = []
     for item in idx:
         s = score(item, q, idf, avg, wq)
         if s > 0:
             hits.append((s, item))
     hits.sort(key=lambda x: (-x[0], x[1]["frag"]))
+    if alias_extra:
+        # 补充别名表只该拉「同义说法」：片段要么命中原话，要么命中同组里的 ≥2 个词。
+        # 少了这道门，一个泛词（「两个」）就能把整片不相干的片段拽进来（rig12 实测）。
+        keep = []
+        for s, item in hits:
+            toks = set(item.get("tokens", []))
+            if (toks & base) or len(toks & alias_extra) >= 2:
+                keep.append((s, item))
+        if len(keep) != len(hits):
+            print(f"（补充别名表兜底：丢掉 {len(hits) - len(keep)} 条只沾一个泛词的片段）")
+        hits = keep
+    if not hits:
+        # 字面零命中才回捞：单字、或索引里根本没有的词（「猫咪」）在二元组索引里撞不上，
+        # 按「字」回捞含它的词；命中的依然是同一套 BM25 打分，权重打折。
+        # 多字种子还要求片段**含它的全部字**（「班级」只收含 班 与 级 的片段），
+        # 否则「升级 / 二级」这种只沾一个字的片段会被当成命中——实测 rig12 就是被它污染的。
+        seeds = missing_seeds(base, idx)
+        seed_chars = [set(s) for s in seeds]
+        got: list[str] = []
+        for seed in seeds:
+            got.extend(backoff_from(seed, idx))
+        got = sorted(set(got) - q)
+        if got:
+            wq2 = dict(wq)
+            for t in got:
+                wq2[t] = SINGLE_BACKOFF_W
+            q2 = q | set(got)
+            for item in idx:
+                toks = set(item.get("tokens", []))
+                if not any(all(any(ch in t for t in toks) for ch in sc) for sc in seed_chars):
+                    continue
+                s2 = score(item, q2, idf, avg, wq2)
+                if s2 > 0:
+                    hits.append((s2, item))
+            hits.sort(key=lambda x: (-x[0], x[1]["frag"]))
+            if hits:
+                print(f"（片段层字面零命中 → 按字回捞：{'、'.join(seeds)} 扩成 {len(got)} 个词，"
+                      f"只收含全字的片段）")
     # 主体分档（2026-10-24 新设备演练补，零新常数）：判到某一侧时同侧片段先排。
     # 只在同侧最强 ≥ 原榜首 * SUBJECT_FLOOR 时启用，防止把不相干的模块硬塞到前面。
     # 背景：219 片里系统/维护类占 86%、写人的只占 4%，词面排序下「用户」永远先撞机制模块。
@@ -1188,8 +1312,14 @@ def pack_doc(args: argparse.Namespace) -> dict:
     main_pool = [i for _, i in scored if i["weight"] == "main" and not i["sensitive"]]
     main, used_modules = [], set()
     if generic:
-        random.shuffle(main_pool)
-        for item in main_pool:
+        # 无查询（这句话本身没有稀有线索）时：先带「她是谁」那几块——001/003/101 存在就带，
+        # 再随机补其余主片段。2026-11-02（task-26）：原先纯随机，库里明明有 001/101，
+        # 抽签抽不到，新用户开箱第一分钟读不到自己的背景。
+        identity = [i for i in main_pool if i["module"] in MORNING_USER_MODULE_IDS]
+        others = [i for i in main_pool if i["module"] not in MORNING_USER_MODULE_IDS]
+        random.shuffle(identity)
+        random.shuffle(others)
+        for item in identity + others:
             if len(main) >= args.main:
                 break
             if item["module"] in used_modules:
@@ -1359,10 +1489,19 @@ def cmd_lint(_: argparse.Namespace) -> int:
     return 0 if not bad else 1
 
 
+MORNING_MAX_CHARS = 6000   # 开场包正文上限（字）：约 2000 tokens，超了不再补随机尾条
+
+
 def cmd_morning(args: argparse.Namespace) -> int:
-    """开场包：人格三块（语气 / 立场 / 我自己的账）各一 + 全库随机几条。"""
+    """开场包：先「她是谁」（身份/侧写/日常），再人格三块，最后全库随机几条。
+
+    2026-11-02（开箱战役 task-26）：原先只带 813/809/808 三块人格件，新用户开箱第一分钟
+    读不到自己的背景。现在 `MORNING_MODULE_IDS` 把 001/003/101 排在前面（库里没有就跳过），
+    总字数按 `MORNING_MAX_CHARS` 走预算——只卡随机尾条，必带的几块不受影响。
+    """
     idx = load_index()
     out, used = [], set()
+    budget = 0
     for mod in MORNING_MODULE_IDS:
         cands = [i for i in idx
                  if i["module"] == mod and i["weight"] == "main" and not i["sensitive"]]
@@ -1371,10 +1510,15 @@ def cmd_morning(args: argparse.Namespace) -> int:
         item = random.choice(cands)
         out.append(item)
         used.add(item["frag"])
+        budget += int(item.get("chars") or 0)
     rest = [i for i in idx
             if i["frag"] not in used and not i["sensitive"] and i["weight"] == "second"]
     random.shuffle(rest)
-    out += rest[: args.random]
+    for item in rest[: args.random]:
+        if budget >= MORNING_MAX_CHARS:
+            break
+        out.append(item)
+        budget += int(item.get("chars") or 0)
 
     print("# 开场记忆包", file=sys.stderr)
     chars = 0
@@ -1382,7 +1526,7 @@ def cmd_morning(args: argparse.Namespace) -> int:
         text = (ROOT / item["file"]).read_text(encoding="utf-8").split("---", 2)[-1].strip()
         chars += len(text)
         print(f"\n### [{item['frag']}] {item['title']}（{item['module_title']}）\n{text}")
-    print(f"\n---\n统计：{len(out)} 个片段，约 {chars // 3} tokens", file=sys.stderr)
+    print(f"\n---\n统计：{len(out)} 个片段，约 {chars // 3} tokens（上限 {MORNING_MAX_CHARS} 字）", file=sys.stderr)
     return 0
 
 

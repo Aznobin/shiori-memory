@@ -319,11 +319,28 @@ def target_dir(root: Path, module: str) -> Path:
     return root / "memory"
 
 
+# ---- 骨架节点号位（2026-11-02 task-24 追加 B）--------------------------------
+# 原来三处（`module_file` / `new_module` / `rejection_hints`）都用「末位 0」当骨架节点的
+# 判据。那是个代理口径，会误伤：2 位号 `10` 也被当成骨架节点，而号码表里根本没有这个号位。
+# 权威口径在 `tools/memory_check.py`：一级 = `000`/`100`/…/`900`（`SKELETON_SLOTS`），
+# 二级 = 每个一级号段的 `Xn0`（`110…190`、`210…290`、…、`910…990`，共 81 个）；
+# `tools/paths.py:148-160 skeleton_node_files()` 也声明自己是这份清单的唯一入口。
+# 合起来就是「三位、末位 0」；`802` 这类不是骨架节点，是普通号位。
+SKELETON_L1 = {"000", "100", "200", "300", "400", "500", "600", "700", "800", "900"}
+
+
+def skeleton_slot(module: str) -> bool:
+    """号位是不是骨架节点：一级 `000`/`100`/…/`900`，二级 `110…990`（三位、末位 0）。"""
+    if module in SKELETON_L1:
+        return True
+    return len(module) == 3 and module.isdigit() and module[2] == "0" and module[1] != "0"
+
+
 def module_file(root: Path, module: str) -> Path:
-    # 末位为 0 的编号是骨架节点：只能由 tools/skeleton_nodes.py 生成，agent 不许自动填充
-    if module.isdigit() and module.endswith("0"):
+    if skeleton_slot(module):
         raise SystemExit(
-            f"[拒绝] {module} 是骨架节点，只能由 tools/skeleton_nodes.py 生成；内容请写到末位非 0 的模块"
+            f"[拒绝] {module} 是骨架节点（一级 000/100/…/900，二级 110…990），"
+            "只能由 tools/skeleton_nodes.py 生成；内容请写到别的号位"
         )
     # 2026-10-24：收件箱的文件名就是 `922-待确认inbox.md`，不带短横线后缀，单独认一下
     pattern = f"{module}.md" if module.startswith("_") else f"{module}-*.md"
@@ -409,9 +426,10 @@ def rejection_hints(root: Path, gate_result: dict) -> list[str]:
         name = slots.get(mod)
         if not name:
             continue
-        if mod.isdigit() and mod.endswith("0"):
+        if skeleton_slot(mod):
             hints.append(
-                f"提示：`{mod}` 是骨架节点，只能由 `tools/skeleton_nodes.py` 生成——内容写到末位非 0 的号位。"
+                f"提示：`{mod}` 是骨架节点（一级 000/100/…/900，二级 110…990），"
+                "只能由 `tools/skeleton_nodes.py` 生成——内容写到别的号位。"
             )
             continue
         hints.append(
@@ -468,6 +486,27 @@ def cn_num(n: int) -> str:
         return "十" + ("一二三四五六七八九"[n - 11] if n > 10 else "")
     tens, ones = divmod(n, 10)
     return "一二三四五六七八九"[tens - 1] + "十" + ("一二三四五六七八九"[ones - 1] if ones else "")
+
+
+# 2026-11-02（缺陷 A）：小节名的前导序号只用一个正则、只在一处剥——
+# 要求「序号 + `.`/`、`/`．`」或「(序号)」括号式，避免把 `2026 计划` 这种真名字也当序号剥掉。
+SECTION_NUM_RE = re.compile(
+    r"^\s*(?:[（(]\s*(?:\d+|[一二三四五六七八九十]+(?:·[一二三四五六七八九十]+)?)\s*[)）]\s*"
+    r"|(?:\d+|[一二三四五六七八九十]+(?:·[一二三四五六七八九十]+)?)\s*[.、．]\s*)+"
+)
+
+
+def normalize_section(name: str | None) -> str:
+    """把调用方给的小节名归一化：只剥前导序号。`三、游戏` / `1. 游戏` / `游戏` → `游戏`。
+
+    2026-11-02（缺陷 A）：只在 `apply()` 入口调一次，剥完的键同时用于查表、建节、回执。
+    原来查表用的键剥了序号、建节落盘用的键没剥（`section` 原样拼进标题），
+    于是「小节还不存在 + 名字自带序号」这条路建出 `## 一、三、棋牌`，再查一次查不到，
+    `start, end = bounds` 直接解包 None 崩栈（rig5-seg2 / rig7-seg3 的真栈）。
+    """
+    if not name:
+        return ""
+    return SECTION_NUM_RE.sub("", str(name).strip()).strip()
 
 
 def section_name(head: str) -> str:
@@ -769,13 +808,24 @@ def apply(root: Path, items: list[dict], today: str, dry: bool, batch: dict | No
                     }
                 )
                 continue
-            new_line = to_bullets(body_with_marks(item["body"], item, today))[0]
+            # 2026-11-02（task-24 追加 A）：原来只取 `[0]`，多行 body 的其余行被**静默丢弃**，
+            # 却照样打印「✓ 已写入 … +0 行」并 exit 0（rig6-seg4 T077/T079 各撞一次）——
+            # 静默截断 + 假成功。现在整段替换：body 几行就写几行，行数变化如实进 planned。
+            new_bullets = to_bullets(body_with_marks(item["body"], item, today))
+            new_line = new_bullets[0]
             new_line = re.sub(r"^(?:-|\*|\|)\s+", "", new_line, count=1)
             hit = hits[0]
             lead = re.match(r"^(\s*(?:-|\*|\|)\s+)", lines[hit])
             prefix = lead.group(1) if lead else "- "
             before_now = count_lines(lines)
             lines[hit] = prefix + new_line
+            if len(new_bullets) > 1:
+                # 多行：把这一行换成 N 行（首行沿用上面那条，其余行同样用原行的前缀）。
+                # 余下行插在这一行后面，保持与单行路径同一套落点。
+                lines[hit : hit + 1] = [lines[hit]] + [
+                    prefix + re.sub(r"^(?:-|\*|\|)\s+", "", b, count=1)
+                    for b in new_bullets[1:]
+                ]
             # 2026-10-24：导入旧内容不该把 updated 拉回去（shiori-new5 报的：写「旧笔记」把 01 的
             # updated 从 2026-10-24 变成 2026-10-12）。条目自己的日期照样记在 body/date 里，只保证
             # 模块的 updated 单调不回退。
@@ -787,8 +837,8 @@ def apply(root: Path, items: list[dict], today: str, dry: bool, batch: dict | No
                     "path": path,
                     "before": before_now,
                     "after": count_lines(lines),
-                    "added": 1,
-                    "section": f"（替换第 {hit + 1} 行）",
+                    "added": count_lines(lines) - before_now,
+                    "section": f"（替换第 {hit + 1} 行，共 {len(new_bullets)} 行）",
                     "updated_line": anchor,
                     "content": lines,
                 }
@@ -871,7 +921,19 @@ def apply(root: Path, items: list[dict], today: str, dry: bool, batch: dict | No
             skipped.append({"index": index, "file": path.name, "reason": "同样的正文第一行已在文件里"})
             continue
 
-        section = item.get("section")
+        raw_section = item.get("section")
+        # 2026-11-02（缺陷 A）：`section` 的契约以前没写清，调用方会以为要自带序号。
+        # 归一化只在这一处做一次，查表、建节、回执全程共用同一个键（剥完的 `section`）。
+        section = normalize_section(raw_section) if raw_section else raw_section
+        if raw_section and not section:
+            errors.append(
+                {
+                    "index": index,
+                    "field": "section",
+                    "reason": f"小节名 {raw_section!r} 里只有序号、没有标题：写成「棋牌」或者「二、棋牌」都行",
+                }
+            )
+            continue
         # 2026-10-24：before 必须在「建小节 / 插条目」之前取——建节会先加 2 行，
         # 那 2 行被算进 before 就会报 16 → 17，而磁盘实际 14 → 17（新设备演练第 4 条）。
         before_now = count_lines(lines)
@@ -887,6 +949,19 @@ def apply(root: Path, items: list[dict], today: str, dry: bool, batch: dict | No
                 lines.extend([f"## {cn_num(_h2_n)}、{section}", ""])
                 created.append(f"{path.name} → ## {cn_num(_h2_n)}、{section}")
                 bounds = section_bounds(lines, section)
+            if bounds is None:
+                # 2026-11-02（缺陷 A）：走到这里还查不到，说明自动补出来的标题跟 `section`
+                # 对不上（比如节名里带换行、带 `#`）。给可读报错，别解包 None——
+                # `TypeError: cannot unpack non-iterable NoneType object` 那种栈会把真实原因盖住。
+                errors.append(
+                    {
+                        "index": index,
+                        "field": "section",
+                        "reason": f"目标文件里没有「{section}」这一节，自动补也没补上；"
+                        f"先确认这个文件里的小节名，或者换一个节名（别带换行、别带 #）",
+                    }
+                )
+                continue
             start, end = bounds
         else:
             # 落在文件末尾时用「真实行数」当锚点，别用 split 出来的长度——
@@ -1457,11 +1532,239 @@ def selftest() -> int:
             f"clean={len(clean_problems)} dirty={dirty_problems[:2]}",
         )
 
+        # ⑤ 缺陷 A（2026-11-02）：小节名带不带序号都该落到同一节，且「小节还不存在 +
+        #    名字自带序号」这条路不许崩（rig5-seg2 / rig7-seg3 就是在这里解包 None 崩的）。
+        check(
+            "归一小节名：只剥前导序号",
+            normalize_section("三、游戏") == "游戏"
+            and normalize_section("1. 游戏") == "游戏"
+            and normalize_section("(三) 游戏") == "游戏"
+            and normalize_section("游戏") == "游戏"
+            and normalize_section("2026 计划") == "2026 计划",
+        )
+        c_a = apply(
+            root,
+            [
+                {
+                    "module": "903",
+                    "op": "add",
+                    "keys": ["归一化"],
+                    "section": "三、归一化",
+                    "body": "带序号的小节名也要落进「归一化」这一节",
+                    "source": "test-transcript",
+                }
+            ],
+            today,
+            dry=False,
+        )
+        c_b = apply(
+            root,
+            [
+                {
+                    "module": "903",
+                    "op": "add",
+                    "keys": ["归一化"],
+                    "section": "归一化",
+                    "body": "不带序号的写法落到同一节",
+                    "source": "test-transcript",
+                }
+            ],
+            today,
+            dry=False,
+        )
+        c_lines = read_lines(target)
+        heads = [i for i, ln in enumerate(c_lines) if ln.startswith("## ")]
+        same_section = False
+        for pos, hi in enumerate(heads):
+            if section_name(c_lines[hi].lstrip("#").strip()) != "归一化":
+                continue
+            stop = heads[pos + 1] if pos + 1 < len(heads) else len(c_lines)
+            block = "\n".join(c_lines[hi:stop])
+            same_section = (
+                "带序号的小节名也要落进" in block and "不带序号的写法落到同一节" in block
+            )
+        check(
+            "缺陷 A：带序号的小节名自动建节不崩、且与不带序号同节",
+            c_a["ok"] is True and c_b["ok"] is True and same_section,
+            f"c_a={c_a.get('errors')} c_b={c_b.get('errors')} same_section={same_section}",
+        )
+        only_num = apply(
+            root,
+            [
+                {
+                    "module": "903",
+                    "op": "add",
+                    "keys": ["空节名"],
+                    "section": "三、",
+                    "body": "节名里只有序号，应该被可读地拒掉，而不是崩栈",
+                    "source": "test-transcript",
+                }
+            ],
+            today,
+            dry=False,
+        )
+        check(
+            "缺陷 A：小节名只有序号时给可读报错、不崩栈",
+            only_num["ok"] is False
+            and any(
+                e.get("field") == "section" and "只有序号" in (e.get("reason") or "")
+                for e in only_num.get("errors") or []
+            ),
+            f"ok={only_num.get('ok')} errors={only_num.get('errors')}",
+        )
+
+        # ⑥ 缺陷 B（2026-11-02）：全新库 `--new-module` 建出来的模块，keywords 要真写进去，
+        #    首条正文要够长（`frag.py lint` 的判据是 `len(body) < 8` 报「过短」）。
+        nm_rc = new_module(root, "502-测试模块", False, ["测试", "样例"])
+        nm_path = target_dir(root, "502") / "502-测试模块.md"
+        nm_text = nm_path.read_text(encoding="utf-8") if nm_path.exists() else ""
+        nm_body = nm_text.split("---", 2)[-1].strip() if nm_text else ""
+        nm_first_block = nm_body.split("\n\n")[0].strip() if nm_body else ""
+        check(
+            "缺陷 B：--new-module 的 --keys 真写进 frontmatter",
+            nm_rc == 0 and "  - 测试" in nm_text and "  - 样例" in nm_text,
+            f"rc={nm_rc} text={nm_text[:120]!r}",
+        )
+        check(
+            "缺陷 B：新模块首条正文够长（lint 不报过短）",
+            len(nm_first_block) >= 8,
+            f"首块 {len(nm_first_block)} 字：{nm_first_block[:40]!r}",
+        )
+
+        # ⑦ 追加 A（2026-11-02）：`replace` 给多行 body 必须整段替换——原来只取第一行，
+        #    其余行静默丢弃，却照样打印「✓ 已写入 … +0 行」并 exit 0（rig6-seg4 T077/T079）。
+        apply(
+            root,
+            [
+                {
+                    "module": "903",
+                    "op": "add",
+                    "keys": ["多行种子"],
+                    "section": "硬禁忌",
+                    "body": "多行替换的目标行（种子）",
+                    "source": "test-transcript",
+                }
+            ],
+            today,
+            dry=False,
+        )
+        ml = apply(
+            root,
+            [
+                {
+                    "module": "903",
+                    "op": "replace",
+                    "keys": ["多行替换"],
+                    "old": "多行替换的目标行（种子）",
+                    "body": "第一行新正文\n第二行新正文\n第三行新正文",
+                    "source": "test-transcript",
+                }
+            ],
+            today,
+            dry=False,
+        )
+        ml_lines = read_lines(target)
+        ml_hit = next((i for i, ln in enumerate(ml_lines) if "第一行新正文" in ln), -1)
+        ml_all = (
+            ml_hit >= 0
+            and ml_hit + 2 < len(ml_lines)
+            and "第二行新正文" in ml_lines[ml_hit + 1]
+            and "第三行新正文" in ml_lines[ml_hit + 2]
+            and not any("多行替换的目标行（种子）" in ln for ln in ml_lines)
+        )
+        check(
+            "追加 A：replace 多行 body 三行都真写进去（不静默截断）",
+            ml["ok"] is True and ml_all,
+            f"ok={ml.get('ok')} hit={ml_hit} 附近={ml_lines[max(ml_hit, 0) : ml_hit + 4]!r}",
+        )
+        ml_added = (ml.get("planned") or [{}])[0].get("added")
+        check(
+            "追加 A：replace 多行的行数变化如实进 planned",
+            ml_added == 2,
+            f"planned={ml.get('planned')}",
+        )
+
+        # ⑧ 追加 B（2026-11-02）：骨架节点判据改用权威号位表（一级 000/100/…/900，
+        #    二级 110…990）——`802` 这类不是骨架节点，2 位号也不该被误判。
+        check(
+            "追加 B：骨架号位判据准确（100/210/500/990 是；802/302a/10 不是）",
+            all(skeleton_slot(m) for m in ("100", "210", "500", "990", "000"))
+            and not any(skeleton_slot(m) for m in ("802", "302a", "10", "931b")),
+            f"802={skeleton_slot('802')} 210={skeleton_slot('210')} 10={skeleton_slot('10')}",
+        )
+        sk_reject = new_module(root, "500-测试模块", False)
+        sk_allow = new_module(root, "802-待办", False)
+        check(
+            "追加 B：骨架号位建模块被拒、非骨架号位（802）可建",
+            sk_reject == 1 and sk_allow == 0,
+            f"500→{sk_reject} 802→{sk_allow}",
+        )
+
+        # ⑨ 第三条（2026-11-02）：`--dry` 与真写入对同一 payload 的落点判断必须一致
+        #    （rig5-seg4：带序号真写崩、`--dry` 却静默落进旧节）。
+        cons = skeleton_dir(root) / "905-落点一致性.md"
+        cons.write_text(
+            '---\nid: "905"\ntitle: 落点一致性\nkeywords: []\nsensitive: false\n'
+            "always: false\nupdated: 2000-01-01\ndistribute: keep\n---\n\n# 落点一致性\n\n"
+            "## 硬禁忌\n\n- 旧条目一\n",
+            encoding="utf-8",
+        )
+        new_sec = [
+            {
+                "module": "905",
+                "op": "add",
+                "keys": ["落点"],
+                "section": "三、棋牌",
+                "body": "带序号也要落到棋牌这一节",
+                "source": "test-transcript",
+            }
+        ]
+        cons_dry = apply(root, new_sec, today, dry=True)
+        dry_untouched = "带序号也要落到棋牌这一节" not in "\n".join(read_lines(cons))
+        cons_real = apply(root, new_sec, today, dry=False)
+        cons_heads = [ln for ln in read_lines(cons) if ln.startswith("## ")]
+        cons_new_head = any(section_name(h.lstrip("#").strip()) == "棋牌" for h in cons_heads)
+        check(
+            "第三条：--dry 与真写入落点一致（带序号 × 新小节）",
+            cons_dry["ok"] is True
+            and cons_real["ok"] is True
+            and dry_untouched
+            and cons_dry["planned"][0].get("section") == cons_real["planned"][0].get("section") == "棋牌"
+            and cons_new_head,
+            f"dry={cons_dry.get('planned')} real={cons_real.get('planned')} 新节={cons_new_head} "
+            f"err_dry={cons_dry.get('errors')} err_real={cons_real.get('errors')} "
+            f"skipped_dry={cons_dry.get('skipped')}",
+        )
+        exist_sec = [
+            {
+                "module": "905",
+                "op": "add",
+                "keys": ["落点二"],
+                "section": "五、硬禁忌",
+                "body": "带序号也要落进已存在的硬禁忌节",
+                "source": "test-transcript",
+            }
+        ]
+        ex_dry = apply(root, exist_sec, today, dry=True)
+        ex_real = apply(root, exist_sec, today, dry=False)
+        ex_heads = [ln for ln in read_lines(cons) if ln.startswith("## ")]
+        ex_same = (
+            len([h for h in ex_heads if section_name(h.lstrip("#").strip()) == "硬禁忌"]) == 1
+        )
+        check(
+            "第三条：--dry 与真写入落点一致（带序号 × 已存在小节，不另起新节）",
+            ex_dry["ok"] is True
+            and ex_real["ok"] is True
+            and ex_dry["planned"][0].get("section") == ex_real["planned"][0].get("section") == "硬禁忌"
+            and ex_same,
+            f"dry={ex_dry.get('planned')} real={ex_real.get('planned')} 同节={ex_same}",
+        )
+
     print(f"selftest {passes}/{total}")
     return 0 if passes == total else 1
 
 
-def new_module(root: Path, spec: str, dry: bool) -> int:
+def new_module(root: Path, spec: str, dry: bool, keys: list[str] | None = None) -> int:
     """按模板新建一个模块文件（已存在就跳过），并登记路由表。
 
     2026-10-24：新设备演练暴露的第一号卡点——memwrite 只接受白名单里已有的模块，
@@ -1472,8 +1775,11 @@ def new_module(root: Path, spec: str, dry: bool) -> int:
         print(f"[拒绝] 模块名要写成 NNN-名称（例如 001-我是谁），收到 {spec!r}")
         return 1
     mod, name = m.group(1), m.group(2).strip().replace("/", "-").replace("\\", "-")
-    if mod.isdigit() and mod.endswith("0"):
-        print(f"[拒绝] {mod} 是骨架节点，只能由 tools/skeleton_nodes.py 生成")
+    if skeleton_slot(mod):
+        print(
+            f"[拒绝] {mod} 是骨架节点（一级 000/100/…/900，二级 110…990），"
+            "只能由 tools/skeleton_nodes.py 生成"
+        )
         return 1
     hits: list[Path] = []
     for base in module_dirs(root):
@@ -1485,18 +1791,30 @@ def new_module(root: Path, spec: str, dry: bool) -> int:
     dest = target_dir(root, mod)
     path = dest / f"{mod}-{name}.md"
     today = date.today().isoformat()
+    # 2026-11-02（缺陷 B）：原来固定写 `keywords: []`，payload 里的 keys 从来不落进模块，
+    # 建完模块第一眼就是「关键词空」；现在支持 `--keys a,b,c`。
+    if keys:
+        kw_block = "keywords:\n" + "\n".join(f"  - {k}" for k in keys)
+    else:
+        kw_block = "keywords: []"
+    # 2026-11-02（缺陷 B）：这一段是给 `frag.py lint` 看的——lint 拿片段正文判「过短」
+    # （`len(body) < 8`），而 `# {name}` 本身就短（6 字）；原来的 `>` 说明行不进片段，
+    # 于是全新库建完模块、第一次体检恒红（rig6/rig7/rig8-seg1 都复现）。
+    # 改成 H1 下面**紧贴**一行正文（中间不留空行）：frag 的 split_paragraphs 遇 `#` 会先
+    # flush、H1 永远独占一块，只有贴在一起，首片段正文才够长。
+    note = f"- {today}：本模块刚建立，内容待补——一条只记一个事实，格式见 `926-模块标题.md`。"
     text = (
         "---\n"
         f'id: "{mod}"\n'
         f"title: {name}\n"
-        "keywords: []\n"
+        f"{kw_block}\n"
         "sensitive: false\n"
         "always: false\n"
         f"updated: {today}\n"
         "distribute: keep\n"
         "---\n\n"
-        f"# {name}\n\n"
-        "> 这个模块是空的：按自己的情况往里加条目，一条只记一个事实，格式见 `926-模块标题.md`。\n"
+        f"# {name}\n"
+        f"{note}\n"
     )
     shown = path.relative_to(root).as_posix()
     if dry:
@@ -1539,6 +1857,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--json", action="store_true", help="输出 JSON 结果")
     ap.add_argument("--new-module", metavar="NN-名字",
                     help="新建一个自己的模块文件（如 801-我是谁），并登记路由表")
+    ap.add_argument("--keys", metavar="a,b,c",
+                    help="配合 --new-module：写进新模块 frontmatter 的 keywords（逗号分隔）")
     ap.add_argument("--restore", metavar="RECYCLE_ID",
                     help="从回收站按 recycle_id 把被退休的那一行原样放回（批 6）")
     ap.add_argument("--verify-receipts", action="store_true",
@@ -1550,7 +1870,8 @@ def main(argv: list[str]) -> int:
 
     root = Path(args.root).resolve() if args.root else DEFAULT_ROOT
     if args.new_module:
-        return new_module(root, args.new_module, args.dry)
+        keys = [k.strip() for k in (args.keys or "").split(",") if k.strip()]
+        return new_module(root, args.new_module, args.dry, keys or None)
     if args.restore:
         return restore(root, args.restore, bool(args.dry))
     if args.verify_receipts:

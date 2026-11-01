@@ -13,6 +13,9 @@
     python tools/verify_pack.py --net       # 额外测 update.py check（要网络）
 
 判据：P0 全过 → exit 0；任何 P0 红 → exit 1。发版前必须绿。
+P0 里有一条 `recall.py hook`：产物里 hook 必须 exit 0 且真吐出注入内容
+（2026-11-02 D19 回归护栏——包按 `distribute: drop` 剔掉 304/918 后，
+recall.py 曾经一 import 就 SystemExit(2)，新用户装完全套自动注入静默死掉）。
 
 没有 git（zip 装进来的那种）不算失败：framework 分支导出降级成 P1 跳过并写明原因，
 能测的照测；有 git 时照旧真导出、真校验。产物的取用顺序：`--src DIR` → `--src`（dist 最新）
@@ -26,6 +29,7 @@ import argparse
 import compileall
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -222,6 +226,43 @@ def _check_frag_in(pkg: Path) -> None:
     record(P1, "frag.py search（空库）", None, tail(r3.stdout + r3.stderr, 2))
 
 
+def check_recall_hook(pkg: Path) -> None:
+    """打包产物里 hook 必须真能跑（2026-11-02 D19 回归护栏）。
+
+    为什么单列一条 P0：发行包按 `distribute: drop` 剔掉 `memory/304-DSH模块清单.md`
+    与 `references/918-架构大纲.md`，recall.py 一 import 就 SystemExit(2)，
+    每个新用户装完自动记忆注入整条死掉——而那时候其它检查全是绿的。
+    喂一条最普通的提问，要求 exit 0 且真吐出注入内容（stdout 非空）。
+    """
+    script = pkg / "tools" / "recall.py"
+    if not script.is_file():
+        record(P0, "recall.py hook 能跑（打包产物）", False, "包里没有 tools/recall.py")
+        return
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    payload = json.dumps({"prompt": "你还记得我叫啥不", "session_id": "verify-pack"},
+                         ensure_ascii=False)
+    try:
+        p = subprocess.run([sys.executable, str(script), "hook", "--host", "codex"],
+                           cwd=str(pkg), input=payload, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", env=env, timeout=180)
+    except Exception as e:  # 起不来也算红，别吞
+        record(P0, "recall.py hook 能跑（打包产物）", False, f"起不来: {e!r}")
+        return
+    out = (p.stdout or "").strip()
+    err = tail(p.stderr, 4)
+    if p.returncode == 0 and out:
+        record(P0, "recall.py hook 能跑（打包产物）", True,
+               f"exit 0 · 注入 {len(out.encode('utf-8'))} 字节")
+    elif p.returncode != 0:
+        record(P0, "recall.py hook 能跑（打包产物）", False,
+               f"exit {p.returncode} · stdout {len(out)} 字节 · stderr: {err}")
+    else:
+        record(P0, "recall.py hook 能跑（打包产物）", False,
+               f"exit 0 但 stdout 是空的（没注入任何东西）· stderr: {err}")
+
+
 def check_routes(pkg: Path) -> None:
     target = pkg / "AGENTS.md"
     if not target.exists():
@@ -396,6 +437,7 @@ def main() -> int:
     check_syntax(pkg)
     check_urls(pkg)
     check_frag(pkg)
+    check_recall_hook(pkg)
     check_routes(pkg)
     check_health(pkg)
     check_update(pkg, args.net)

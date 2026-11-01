@@ -153,11 +153,24 @@ def _assert_meta_docs(ids: set[str]) -> None:
     # 于是每个新用户第一次跑 recall.py 都在这里 SystemExit(2)，自动注入整条死掉。
     # 规则改成：可缺席编号（见 routes.META_MODULE_IDS_OPTIONAL）**本机确实没有这个模块**
     # 时只提醒、不阻断；本机有文件却没进索引，照旧硬失败——重编号错误还是当场炸。
+    # 2026-11-02 task-23：算/报/抛拆成下面两个函数，好让 selftest 直接驱动这两条分支，
+    # 不必靠「改真库再改回来」来验；本函数的行为与拆之前逐字一致。
     import routes as _routes
     optional_ids = set(getattr(_routes, "META_MODULE_IDS_OPTIONAL", ()))
     local_files = set(_routes.present_ids())
+    _report_meta_missing(missing, src, optional_ids, local_files)
+
+
+def _split_meta_missing(missing, optional_ids, local_files):
+    """把「索引里没有的元规则编号」分成可缺席的与硬失败的；纯函数，方便自检驱动。"""
     optional = sorted(i for i in missing if i in optional_ids and i not in local_files)
     hard = [i for i in missing if i not in optional]
+    return optional, hard
+
+
+def _report_meta_missing(missing, src, optional_ids, local_files):
+    """算 + 报 + 抛：可缺席的只打提醒、硬的 SystemExit(2)；返回可缺席的那几个。"""
+    optional, hard = _split_meta_missing(missing, optional_ids, local_files)
     if optional:
         print(
             f"⚠️ 元规则模块 {'、'.join(optional)} 按 distribute: drop 未随包分发，"
@@ -171,6 +184,7 @@ def _assert_meta_docs(ids: set[str]) -> None:
             file=sys.stderr,
         )
         raise SystemExit(2)
+    return optional
 
 
 _assert_meta_docs(META_DOCS)
@@ -979,6 +993,31 @@ def cmd_selftest(a):
             decay.READS.parent.mkdir(exist_ok=True)
             (root / "冒出个目录").mkdir()
             check("读账写盘失败时不抛异常（只打真原因）", note_read_hits(["001.002"]) == 0)
+
+        # 2026-11-02 task-23（D19 边界）：用假数据直接驱动「算 + 报 + 抛」，
+        # 不动真库、也不靠 import 时那次模块级断言碰运气。
+        import io
+
+        def meta_raises(missing, optional_ids, local_files):
+            """跑一遍报告逻辑，返回 (是否 SystemExit, stderr 文本)。"""
+            err = io.StringIO()
+            old_err = sys.stderr
+            sys.stderr = err
+            try:
+                _report_meta_missing(missing, "自检", optional_ids, local_files)
+                return False, err.getvalue()
+            except SystemExit:
+                return True, err.getvalue()
+            finally:
+                sys.stderr = old_err
+
+        absent_raised, absent_err = meta_raises(["304", "918"], {"304", "918"}, set())
+        check("可缺席编号本机没有 → 只提醒、不抛",
+              (not absent_raised) and ("⚠️" in absent_err) and ("❌" not in absent_err),
+              repr(absent_err))
+        hard_raised, hard_err = meta_raises(["304"], {"304"}, {"304"})
+        check("可缺席编号本机有文件却没进索引 → 必须抛（硬护栏没丢）",
+              hard_raised and ("❌" in hard_err), repr(hard_err))
     finally:
         decay.READS, decay.INDEX = keep_reads, keep_index
 
