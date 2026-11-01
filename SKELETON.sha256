@@ -7,7 +7,7 @@
 # 928 路由详表 / 924 合并候选）——这些本来就会被写记忆和 tick / catalog / routes 反复重写。
 520bba2fcfebec31351aabf0ef1504b46f71c0957d7bcecb12f6df688393d17d  AGENTS.md
 8f69779e818a4a349eded3824a930b9da9fb01d593958babf5917a965ed7c745  SKILL.md
-f788eb0c60930fd7a6c76243fbf7a5acb4cd6d336de36d493818b9e438bfdc94  VERSION
+3d901930de0e241026725466cc51b31b51951b7c18e55360047c8dcb459d9332  VERSION
 8b65739b8389275959133d9ff7fe3ca99ae109eca56f436bc135d4f2f5eb37e3  bin/recall-hook.cmd
 a9eb77e339bb2ec2b0cdd39d1dc49aeecabf04dff84fdd52b47e4973baf16368  bin/recall-hook.sh
 96fae97cdc532b9767b519a4772e9bed5cb8c58e18193330445ade5b42e5b7fc  config.example.json
