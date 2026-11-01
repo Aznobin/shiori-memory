@@ -22,8 +22,8 @@ import re
 import sys
 from pathlib import Path
 
-DEFAULT_MAP = Path(r"%USERPROFILE%\Desktop\Shiori-编号映射草表.md")
-DEFAULT_ROOT = Path(r"%USERPROFILE%\.agents\skills\user-memory")
+DEFAULT_MAP = Path.home() / "Desktop" / "编号映射草表.md"
+DEFAULT_ROOT = Path(__file__).resolve().parents[1]
 
 # 生成物 / 历史文件：只读不改（`921` 变更日志的历史行按旧号保留；`927` / `928` 是生成物）
 SKIP_FILES = {"921-变更日志.md", "927-记忆库总览.md", "928-路由详表.md"}
