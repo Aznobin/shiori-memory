@@ -47,6 +47,8 @@ TOOLS = Path(__file__).resolve().parent
 DEFAULT_ROOT = TOOLS.parent
 FRONT_UPDATED_RE = re.compile(r"^updated:\s*(\S+)\s*$")
 HEAD2_RE = re.compile(r"^##\s+(.*?)\s*$")
+# 2026-10-30：正文格式统一后 H2 一律带序号（`## 一、标题`），查节/建节都要认这个前缀。
+HEAD2_NUM_RE = re.compile(r"^(?:\d+|[一二三四五六七八九十]+(?:·[一二三四五六七八九十]+)?)[.、．]\s*")
 TABLE_SEP_RE = re.compile(r"^\|\s*:?-{3,}")
 BULLET_PREFIXES = ("-", "*", "|", "#", ">")
 
@@ -166,12 +168,29 @@ def write_lines(path: Path, lines: list[str]) -> None:
     write_doc(path, lines, b"\r\n" in path.read_bytes())
 
 
+def cn_num(n: int) -> str:
+    """1→一、11→十一、21→二十一；只用于给新建的小节编号。"""
+    if n <= 0:
+        return str(n)
+    if n < 10:
+        return "一二三四五六七八九"[n - 1]
+    if n < 20:
+        return "十" + ("一二三四五六七八九"[n - 11] if n > 10 else "")
+    tens, ones = divmod(n, 10)
+    return "一二三四五六七八九"[tens - 1] + "十" + ("一二三四五六七八九"[ones - 1] if ones else "")
+
+
+def section_name(head: str) -> str:
+    """标题去掉序号前缀，`## 二·五、常驻前言` / `## 1. 我是谁` / `## 我是谁` 都归一到 `常驻前言` / `我是谁`。"""
+    return HEAD2_NUM_RE.sub("", head.strip()).strip()
+
+
 def section_bounds(lines: list[str], name: str) -> tuple[int, int] | None:
     """返回 `## name` 这一节的正文范围 [start, end)，不含标题行与下一个 `##`。"""
-    want = name.strip()
+    want = section_name(name)
     for i, line in enumerate(lines):
         m = HEAD2_RE.match(line)
-        if m and m.group(1).strip() == want:
+        if m and section_name(m.group(1)) == want:
             start = i + 1
             for j in range(start, len(lines)):
                 if HEAD2_RE.match(lines[j]):
@@ -447,8 +466,10 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
                 # 女儿建人设的第一条记忆就被卡住。改成自动补一节（只改内存，有错时整批都不落盘）。
                 if lines and lines[-1].strip():
                     lines.append("")
-                lines.extend([f"## {section}", ""])
-                created.append(f"{path.name} → ## {section}")
+                # 2026-10-30：新小节也按正文格式带序号，编号接在现有 H2 之后。
+                _h2_n = sum(1 for ln in lines if HEAD2_RE.match(ln)) + 1
+                lines.extend([f"## {cn_num(_h2_n)}、{section}", ""])
+                created.append(f"{path.name} → ## {cn_num(_h2_n)}、{section}")
                 bounds = section_bounds(lines, section)
             start, end = bounds
         else:

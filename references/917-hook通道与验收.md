@@ -1,5 +1,5 @@
 ---
-id: "917"
+id: 917
 title: hook 通道与交付验收
 keywords:
   - hookcheck

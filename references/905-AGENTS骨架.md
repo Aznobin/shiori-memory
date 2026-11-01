@@ -1,12 +1,12 @@
 ---
-id: "905"
+id: 905
 title: AGENTS骨架
 keywords:
   - AGENTS骨架
 sensitive: false
 always: false
 relates_to: ["SKILL"]
-updated: 2026-10-30
+updated: 2026-11-02
 distribute: blank
 ---
 

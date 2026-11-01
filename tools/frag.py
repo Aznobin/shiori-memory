@@ -131,6 +131,38 @@ def slug(text: str, limit: int = 10) -> str:
     return (cleaned or "片段")[:limit]
 
 
+TRAILING_PAREN_RE = re.compile(r"[（(][^（()）]*[）)]\s*$")
+
+
+def clean_mod_title(text: str, limit: int = 24) -> str:
+    """切片目录用的“干净标题”：去掉末尾一个成对括号段，再清掉路径非法字符。
+
+    只用于目录名；检索键 frag_id 仍走 frontmatter id（2026-10-30 定）。
+    """
+    return _sanitize_title(TRAILING_PAREN_RE.sub("", text or "").strip(), limit)
+
+
+def clean_mod_title_keep_suffix(text: str, limit: int = 24) -> str:
+    """同名撞车时的后备：保留末尾括号段内的内容，别让两个模块并进同一个目录。"""
+    text = text or ""
+    seg = TRAILING_PAREN_RE.search(text)
+    base = _sanitize_title(TRAILING_PAREN_RE.sub("", text).strip(), limit)
+    if not seg:
+        return base
+    tail = seg.group(0).strip()
+    if tail and tail[0] in "（(" and tail[-1] in "）)":
+        tail = tail[1:-1]
+    return ((base + _sanitize_title(tail, limit))[:limit]).strip("-") or base
+
+
+def _sanitize_title(text: str, limit: int) -> str:
+    out = re.sub(r"\s+", "", text or "")
+    out = out.replace("/", "").replace("\\", "").replace("·", "")
+    out = re.sub(r'[:*?"<>|]', "-", out)
+    out = re.sub(r"-{2,}", "-", out).strip("-")
+    return (out or "未命名")[:max(limit, 1)]
+
+
 COMMENT_SPAN_RE = re.compile(r"<!--.*?-->")
 
 
@@ -425,6 +457,20 @@ def build() -> int:
     ANN_STATS.clear()
 
     files = sorted(p for p in module_paths() if _sliceable(p))
+    # 目录名撞车检测（2026-10-30）：干净标题去掉了末尾括号段，语料里确实有
+    # 811/812「语气素材库（B 档 · 最毒舌）」「（A 档 · 最可爱）」这类同名件。
+    # 同一 build 内出现两次以上时，后来者改为保留末尾括号段；不撞车时输出完全不动作。
+    seen_names: dict[str, int] = {}
+    for path in files:
+        _meta, _body = parse_front(path.read_text(encoding="utf-8"))
+        _prefix = path.name.split("-")[0]
+        _title = _meta.get("title") or path.stem
+        # 无 frontmatter 时 title 回退成文件 stem（形如 `928-路由详表`），stem 里自带数字
+        # 前缀；不剥掉就会拼出 `928-928-路由详表`（2026-10-30 修）。
+        if not _meta.get("title") and _title.startswith(_prefix + "-"):
+            _title = _title[len(_prefix) + 1:]
+        _base = f"{_prefix}-{clean_mod_title(_title)}"
+        seen_names[_base] = seen_names.get(_base, 0) + 1
     for path in files:
         raw_text = path.read_text(encoding="utf-8")
         meta, body = parse_front(raw_text)
@@ -476,7 +522,15 @@ def build() -> int:
         generic = annotate.generic_tokens(
             [{"title": t or mod_title, "module_title": mod_title, "keywords": [], "module": mod_id}
              for t, _lines in parts], mod_kw_list)
-        mod_dir = FRAG / f"{mod_id}-{slug(mod_title, 8)}"
+        _prefix = path.name.split("-")[0]
+        if not meta.get("title") and mod_title.startswith(_prefix + "-"):
+            _dir_title_src = mod_title[len(_prefix) + 1:]
+        else:
+            _dir_title_src = mod_title
+        _dir_title = clean_mod_title(_dir_title_src)
+        if seen_names.get(f"{_prefix}-{_dir_title}", 0) > 1:
+            _dir_title = clean_mod_title_keep_suffix(_dir_title_src)
+        mod_dir = FRAG / f"{_prefix}-{_dir_title}"
         mod_dir.mkdir(parents=True, exist_ok=True)
         live_dirs.add(mod_dir.name)
         entries: list[dict] = []

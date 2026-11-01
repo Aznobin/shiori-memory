@@ -43,8 +43,8 @@ PARTITIONS = {
 }
 
 TEMPLATE = """---
-id: "{mid}"
-title: "{title}"
+id: {mid}
+title: {title}
 kind: skeleton-node
 keywords: []
 sensitive: false
@@ -83,13 +83,13 @@ def plan(root: Path) -> list[tuple[Path, str]]:
 
 
 SUBCLASS_TEMPLATE = """---
-id: "{mid}"
-title: "{title}"
+id: {mid}
+title: {title}
 kind: skeleton-node
 keywords: []
 sensitive: false
 always: false
-relates_to: ["{parent}"]
+relates_to: [{parent}]
 updated: {today}
 distribute: blank
 ---
