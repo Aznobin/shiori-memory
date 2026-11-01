@@ -5,6 +5,7 @@
     cfg["workspace"]        # 笔记库绝对路径
     cfg["python"]           # 本机 python 解释器
     cfg.path("home")        # 同 cfg["home"]，取不到返回 ""
+    cfg.reads("enabled")    # 「读 ≠ 用」两档的口径，配置里没写就用默认值
 
 没有 memory.config.json 时退回 config.example.json（全空路径），
 再退回环境变量 USERPROFILE 推断主目录。
@@ -35,6 +36,25 @@ DEFAULTS = {
         "dir": "日记",
         "prefix": "日记",
     },
+    "reads": {
+        # 「读 ≠ 用」第一档（2026-11-02 批6）：命中就算「读过」，取用才叫「用过」。
+        # 读账是运行期数据，只落 state/reads.json；这里只管口径与上限，不写任何状态。
+        "enabled": True,
+        "maxFrags": 60,
+        "keep": 4000,
+    },
+    "write": {
+        # 写入侧的四道闸口径（2026-11-02 批6）：证据锚 + 审计层三件。
+        # 这里只管口径，运行期数据一律落 state/（write_idem.jsonl / write_receipts.jsonl
+        # / recycle/<日期>.jsonl），不写任何状态。
+        # evidence: enforce = 缺证据锚 / 对不上就拒；warn = 只提醒不阻断；off = 完全不管。
+        "evidence": "enforce",
+        "evidenceWindow": 3,      # 找 quote 时在 source_line 前后各看几行
+        "evidenceMinQuote": 8,    # quote 至少几个字
+        "idempotency": True,      # 幂等键闸（同 key 重放 = replay；同 key 异内容 = 整批零写）
+        "revision": True,         # 并发令牌闸（expected_revision 不符 = 整批零写）
+        "recycle": True,          # 软删回收站（retire 前先把原行抄进 state/recycle/）
+    },
 }
 
 
@@ -59,6 +79,8 @@ def _build() -> dict:
         "pack": {**DEFAULTS["pack"], **(data.get("pack") or {})},
         "git": {**DEFAULTS["git"], **(data.get("git") or {})},
         "diary": {**DEFAULTS["diary"], **(data.get("diary") or {})},
+        "reads": {**DEFAULTS["reads"], **(data.get("reads") or {})},
+        "write": {**DEFAULTS["write"], **(data.get("write") or {})},
     }
     merged["paths"].update(data.get("paths") or {})
     if not merged["paths"].get("home"):
@@ -78,6 +100,26 @@ def git_identity():
     """这台机器上记忆库的提交身份；配置里没写就用默认值。"""
     return (cfg.get("git") or {}).get("name") or DEFAULTS["git"]["name"], \
            (cfg.get("git") or {}).get("email") or DEFAULTS["git"]["email"]
+
+
+def reads(key):
+    """「读 ≠ 用」两档的口径（`enabled` / `maxFrags` / `keep`）；配置里没写就用默认值。
+
+    这里只读配置，不碰 state——读账文件本身由 tools/decay.py 管（state/reads.json）。
+    """
+    return (cfg.get("reads") or {}).get(key, DEFAULTS["reads"][key])
+
+
+def write(key, default=None):
+    """写入侧四道闸的口径（`evidence` / `evidenceWindow` / `evidenceMinQuote` /
+    `idempotency` / `revision` / `recycle`）；配置里没写就用默认值。
+
+    这里只读配置，不碰 state——幂等账、回执、回收站都在 state/ 下，由 tools/memwrite.py 管。
+    """
+    value = (cfg.get("write") or {}).get(key)
+    if value is None:
+        return DEFAULTS["write"].get(key, default)
+    return value
 
 
 class _Config:

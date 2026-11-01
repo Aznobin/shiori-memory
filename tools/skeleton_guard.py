@@ -8,6 +8,10 @@
 你自己在 references/ 里建的模块不在骨架里，随便改。
 你自己在 tools/private/ 里放的脚本也不在骨架里，随便改。
 
+跑出来的东西也不算改骨架：__pycache__/、*.pyc、memdb.sqlite3（连它的 -wal / -shm
+兄弟）、.style_override.json —— 这些是本机自己生成的机器状态，你跑一次脚本就会冒出来，
+不该为它报「骨架被动过」。
+
 用法：
     python tools/skeleton_guard.py           # 检查；被动过就逐条列出并 exit 1
     python tools/skeleton_guard.py --quiet   # 只打一行结论
@@ -26,6 +30,46 @@ ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "SKELETON.sha256"
 SKELETON_DIRS = ("tools", "bin", "templates", "framework-public")
 SKELETON_FILES = ("AGENTS.md", "SKILL.md", "setup.ps1", "VERSION", "config.example.json")
+
+# 用户自己长出来的结构件：归属用户的库，不是骨架（真源 = tools/update.py 的 USER_OWNED）。
+# 2026-11-02 实测：这些文件开箱后会被正常使用重写（921 追加日志 / 923 tick 重写 / 927 catalog
+# 重算 / 928 routes 重算），签进清单就一路误报「骨架被动过」；而 pack.py 自 2026-11-02 起不再
+# 把它们签进 SKELETON.sha256，于是又会被下面那条「references/9*.md 不在清单里就是多出来的」
+# 误报成「多出来的」。两处都要认这份常量。
+try:
+    from update import USER_OWNED  # noqa: E402
+except Exception:  # noqa: BLE001
+    # 真源同 tools/update.py USER_OWNED（import 拿不到时的兜底，改动请只改那份）
+    USER_OWNED = (
+        "references/921-变更日志.md",
+        "references/927-记忆库总览.md",
+        "references/923-巡检记录.md",
+        "references/922-待确认inbox.md",
+        "references/928-路由详表.md",
+        "references/924-合并候选清单.md",
+        "references/926-模块标题.md",
+    )
+
+# 运行期产物：跑过一次脚本就在骨架目录里冒出来，全是本机生成的机器状态，不算「骨架被动过」。
+# 2026-11-02 全新包实测：解压 + 跑一次 setup 就多出 7 个 tools/__pycache__/*.pyc 和
+# 1 个 tools/memdb.sqlite3，整份包刚到手就报「多 8」。这里只忽略这些，别的照样查。
+RUNTIME_DIRS = ("__pycache__",)
+RUNTIME_SUFFIXES = (".pyc", ".pyo")
+RUNTIME_FILES = ("memdb.sqlite3", ".style_override.json")
+
+
+def is_runtime(rel: str) -> bool:
+    """这一份是不是「跑出来的」：本机自己生成的状态，不是作者放进包里的东西。"""
+    parts = rel.split("/")
+    if any(p in RUNTIME_DIRS for p in parts[:-1]):
+        return True
+    name = parts[-1]
+    if name.endswith(RUNTIME_SUFFIXES):
+        return True
+    if name in RUNTIME_FILES or name.startswith("memdb.sqlite3-"):
+        # memdb.sqlite3 的 -wal / -shm 兄弟跟它一起生成
+        return True
+    return False
 
 
 def sha_of(p: Path) -> str:
@@ -73,6 +117,9 @@ def main() -> int:
     changed: list[str] = []
     missing: list[str] = []
     for rel, old in sorted(want.items()):
+        if rel in USER_OWNED:
+            # 老包清单里可能还签着这些用户结构件；它们本来就该被用户重写，不算「被动过」
+            continue
         f = root / rel
         if not f.exists():
             missing.append(rel)
@@ -91,10 +138,15 @@ def main() -> int:
             if f.relative_to(root).parts[:2] == ("tools", "private"):
                 continue
             rel = f.relative_to(root).as_posix()
+            if is_runtime(rel):
+                continue
             if rel not in known:
                 extra.append(rel)
     for f in sorted((root / "references").glob("9*.md")):
         rel = f.relative_to(root).as_posix()
+        if rel in USER_OWNED:
+            # 用户长出来的结构件：不签清单，也不算「多出来的」
+            continue
         if rel not in known:
             extra.append(rel)
 

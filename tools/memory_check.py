@@ -266,11 +266,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f"宿主: Python {sys.version.split()[0]}")
 
     # 1) 路由表 <-> 文件
-    #    2026-10-20 起小类详表拆到 references/928-路由详表.md；两张都读，缺一张就只看另一张
-    route_text = skill_text
+    #    2026-10-20 起小类详表拆到 references/928-路由详表.md。
+    #    2026-11-02（batch9 D3）：登记来源只认 928 这一张——它由 tools/routes.py 按**实际存在
+    #    的模块文件**生成，是本库唯一对得上的登记表。SKILL.md 里的表格行不能当登记：随包发出去
+    #    的公开 SKILL.md 带着一张 <!-- MODULES --> 例子表（`001-基本背景与兴趣` 这种「空槽，
+    #    按自己的情况填」的提示行），那些文件在包落到的地方根本不存在，于是任何一份新解压的库
+    #    都吃五条「路由表登记但文件不存在」的假 ❌（本库 SKILL.md 的表格行实测解析出 0 条登记，
+    #    中招的全是那张例子表）。928 缺失（老库 / 只有主文件的库）时才退回只读 SKILL.md。
     route_src = refs / "928-路由详表.md"
-    if route_src.exists():
-        route_text += "\n" + read(route_src)
+    route_text = read(route_src) if route_src.exists() else skill_text
     mods = _module_map(root)
     by_num: dict[str, str] = {}
     for fname in mods:
@@ -501,7 +505,12 @@ def main(argv: list[str] | None = None) -> int:
         ws_text = read(workspace_md)
         if "memgit.py check" not in ws_text:
             warns.append("工作区 AGENTS.md 没有 memgit.py check：真正生效的那份过期了")
-        else:
+        # 2026-11-02（batch9 D9）：「check 排在第 1 条」是**有 .git 的那台机器**上的私有排序。
+        # 随包的公开模板故意不这么排——包内没有 .git，`memgit.py check` 只会打一行「不是仓库，
+        # 跳过比对」，公开 AGENTS.md 里明写这是正常形态，真实 §1 第 1 条是 `frag.py search`。
+        # 照搬这条等于把本库的排序硬套到别人的库上，任何一份新解压的库都吃一条假 warn。
+        # 所以只在库根有 .git 时才查排序；上面「三处都要提 memgit.py check」那条不动。
+        elif (root / ".git").exists():
             m = re.search(r"(?ms)^## 1\. .*?(?=^## )", ws_text)
             head = m.group(0) if m else ""
             first = re.search(r"(?m)^1\..*$", head)

@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""写入闸门（Stage 3-shadow）：只读校验器，不接任何写入流程。
+"""写入闸门（2026-11-02 起是真闸门）：memwrite.py 每次写入前都过它，缺凭据的写入被拒。
+
+证据锚（批 2，2026-11-02）：`add` / `replace` 必须带 `evidence`
+（`source_file` / `source_line` / `quote`）。本模块自己去读 `source_file` 的第
+`source_line` 行前后 `write.evidenceWindow` 行，要求 `quote` 逐字落在那个窗口里
+（至少 `write.evidenceMinQuote` 字）；写入方自报的 `sha256` **只当「声称」比对，
+不作为证据**。`retire` 走轻量锚（`reason` 必填，被删行的 sha256 由写入端自己算），
+不要求 evidence。开关在 `tools/config.py` 的 `write.evidence`：
+`enforce`（默认）/ `warn` / `off`。批次级 `expected_revision` 的形状也在这里校验，
+实际比对由 `memwrite.py` 做。payload 也可以是对象形式：
+`{"items": [...], "expected_revision": {...}, "idempotency_key": "...", "batch_id": "..."}`。
 
 用法：
     python tools/write_gate.py payload.json     # 校验文件
@@ -20,6 +30,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -28,6 +39,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config import write as write_cfg  # noqa: E402
 from paths import SUBJECT_MODULE_IDS, module_files, resolve_module  # noqa: E402
 
 # merge / weight 是设计里预留的两档，但写入端（memwrite.py 的 apply）至今没接：
@@ -85,6 +97,15 @@ DATE_ANCHOR_IN_TEXT_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 ANCHOR_WINDOW = 30
 WARN_LOG = Path.home() / ".agents" / "state" / "write_gate_warn.jsonl"
 LOG_WARNINGS = True
+
+# ---- 写入侧四道闸的口径（2026-11-02 批 6）-----------------------------------
+# 全部走 tools/config.py 的 `write` 段，骨架里不写死：下游改 memory.config.json 就能调，
+# 不用改代码、也不会被下一次骨架置换覆盖。证据锚那两个数字是批 2 原型验过的默认值。
+EVIDENCE_MODE = str(write_cfg("evidence", "enforce")).strip().lower()
+EVIDENCE_WINDOW = int(write_cfg("evidenceWindow", 3))
+EVIDENCE_MIN_QUOTE = int(write_cfg("evidenceMinQuote", 8))
+MAX_IDEM_KEY_CHARS = 64
+HEX16_RE = re.compile(r"^[0-9a-f]{16}$")
 
 
 def module_ids() -> set[str]:
@@ -156,7 +177,109 @@ def check_date(value, index: int, field: str) -> dict | None:
     return None
 
 
-def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[dict], list[dict]]:
+def check_evidence(item, index: int, root: Path | None = None):
+    """证据锚（2026-11-02 批 6；来源 `931` §7-⑬ ／ dream `lib/evidence.js`）。
+
+    口径：**只对来源是文件/文档的写入强制**——`add` / `replace` 必须能回查到**本库里
+    的可见原文**：给来源文件、行号、那段原文，本函数自己读文件去核；写入方自报的
+    `sha256` 只当「声称」比对，**永远不作为证据本身**。给了 `source`（user-original /
+    test-transcript / sample / unknown）的对话来源不要求 evidence，按原有 `source`
+    校验放行。`retire` 走轻量锚（`reason` 必填 + 被删行的 sha256 由写入端自己算），
+    不要求 evidence。
+
+    `write.evidence` 三档：`enforce`（缺就拒）/ `warn`（缺只提醒）/ `off`（完全不管）。
+    返回 `(normalized_evidence | None, errors, warns)`。
+    """
+    warns: list[dict] = []
+    _op = (item.get("op") or "").strip().lower() if isinstance(item.get("op"), str) else ""
+    if _op not in ("add", "replace") or EVIDENCE_MODE == "off":
+        return None, [], warns
+
+    # `evidence` 只对「来源是文件/文档」的写入强制（2026-11-02 批 6，口径收紧）。
+    # 对话来源——payload 给了 `source` 四档之一（user-original / test-transcript /
+    # sample / unknown）——按原有 `source` 校验放行，**不强制**证据锚。两条理由都硬：
+    #   ① 公开文档里印着不带 evidence 的示例 payload（`AGENTS.md` §2、`SKILL.md` §5：
+    #      `{"module":"801","op":"add","keys":["名字"],"section":"我是谁","body":"…",
+    #      "source":"user-original"}`），一律强制等于当场改坏已经发布出去、别的模型
+    #      正在照抄的契约，违反「可升级置换架构优先」里的向后兼容；
+    #   ② 对话里说的话本来就没有 file:line，硬要 evidence 只会逼调用方编一个假来源——
+    #      那正是这道闸门要防的事。
+    # 给了 `source` 就说明「这条的来源不是文件」；没给才按文件/文档来源要求回查。
+    # 对话来源若**仍然**带了 evidence，照样严格核（你自己声称了 file:line 就得对得上）。
+    _src = item.get("source")
+    conversational = isinstance(_src, str) and _src.strip() in SOURCES
+
+    ev = item.get("evidence")
+    if conversational and not isinstance(ev, dict):
+        return None, [], warns
+    if not isinstance(ev, dict):
+        if EVIDENCE_MODE == "warn":
+            warns.append(warn(index, "evidence", "缺 evidence（只提醒，不阻断）"))
+            return None, [], warns
+        return None, [
+            err(
+                index,
+                "evidence",
+                "add / replace 必须带 evidence：{source_file, source_line, quote}"
+                "——来源文件 + 行号 + 那段原文，闸门自己去读来核（批 2/批 6 口径）",
+            )
+        ], warns
+
+    sf = ev.get("source_file")
+    sl = ev.get("source_line")
+    quote = ev.get("quote")
+    if not isinstance(sf, str) or not sf.strip():
+        return None, [err(index, "evidence", "evidence.source_file 必须是相对库根的字符串路径")], warns
+    sf = sf.strip().replace("\\", "/")
+    if isinstance(sl, bool) or not isinstance(sl, int) or sl < 1:
+        return None, [err(index, "evidence", f"evidence.source_line 必须是 ≥1 的整数（拿到 {sl!r}）")], warns
+    if not isinstance(quote, str) or len(quote.strip()) < EVIDENCE_MIN_QUOTE:
+        got = len(quote.strip()) if isinstance(quote, str) else 0
+        return None, [
+            err(index, "evidence", f"evidence.quote 至少 {EVIDENCE_MIN_QUOTE} 个字（拿到 {got} 字）")
+        ], warns
+
+    base = Path(root) if root else ROOT
+    path = base / sf
+    try:
+        path.resolve().relative_to(base.resolve())
+    except ValueError:
+        return None, [err(index, "evidence", f"evidence.source_file {sf!r} 跑到库根外面去了")], warns
+    if not path.is_file():
+        return None, [err(index, "evidence", f"evidence.source_file {sf!r} 读不到（库里没有这个文件）")], warns
+    try:
+        src_lines = path.read_text(encoding="utf-8").split("\n")
+    except OSError as exc:
+        return None, [err(index, "evidence", f"evidence.source_file {sf!r} 读取失败：{exc}")], warns
+
+    lo = max(0, sl - 1 - EVIDENCE_WINDOW)
+    hi = min(len(src_lines), sl + EVIDENCE_WINDOW)
+    window = "\n".join(src_lines[lo:hi])
+    q = quote.strip()
+    if q not in window:
+        actual = src_lines[sl - 1].strip()[:60] if sl - 1 < len(src_lines) else "(没有这一行)"
+        return None, [
+            err(
+                index,
+                "evidence",
+                f"evidence.quote 在 {sf} 第 {sl} 行前后 {EVIDENCE_WINDOW} 行里找不到；"
+                f"该行实际内容是：{actual}",
+            )
+        ], warns
+
+    norm: dict = {"source_file": sf, "source_line": sl, "quote": q}
+    claimed = ev.get("sha256")
+    if isinstance(claimed, str) and claimed.strip():
+        real = hashlib.sha256(q.encode("utf-8")).hexdigest()
+        if claimed.strip().lower() != real:
+            return None, [
+                err(index, "evidence", "你自己报的 sha256 跟这段原文实测不一致（自证无效）")
+            ], warns
+        norm["sha256"] = real
+    return norm, [], warns
+
+
+def validate_item(item, index: int, mods: set[str], root: Path | None = None) -> tuple[dict | None, list[dict], list[dict]]:
     errors: list[dict] = []
     warns: list[dict] = []
     if not isinstance(item, dict):
@@ -294,6 +417,43 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
             if bad:
                 errors.append(bad)
 
+    # op=retire 必须带理由：删记忆比写记忆危险，不能让「退休」静悄悄发生。
+    # 2026-11-02 修：这段原来在下面的 `if errors: return` 之后，error 被 `[]` 吃掉，
+    # retire 缺 reason 会**静默放行**；搬到早退之前，它才真的挡得住。
+    norm_reason = ""
+    if _op_low == "retire":
+        reason = item.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            errors.append(
+                err(index, "reason", "retire 必须给 reason：为什么让它退休（会写进行尾标记，以后能看见）")
+            )
+        else:
+            norm_reason = reason.strip()
+
+    # 幂等键（2026-11-02 批 6）：闸门只管形状，命不命中由 memwrite.py 查账。
+    norm_ikey = ""
+    ikey = item.get("idempotency_key")
+    if ikey is not None and not isinstance(ikey, str):
+        errors.append(err(index, "idempotency_key", "idempotency_key 必须是字符串"))
+    elif isinstance(ikey, str) and ikey.strip():
+        if len(ikey.strip()) > MAX_IDEM_KEY_CHARS:
+            errors.append(
+                err(
+                    index,
+                    "idempotency_key",
+                    f"idempotency_key 有 {len(ikey.strip())} 字，超过 {MAX_IDEM_KEY_CHARS} 字上限",
+                )
+            )
+        else:
+            norm_ikey = ikey.strip()
+
+    # 证据锚（2026-11-02 批 6）：前面已经挡住的条目不再多报一条证据错。
+    norm_evidence = None
+    if not errors:
+        norm_evidence, ev_errs, ev_warns = check_evidence(item, index, root)
+        errors.extend(ev_errs)
+        warns.extend(ev_warns)
+
     if errors:
         return None, errors, warns
 
@@ -319,26 +479,64 @@ def validate_item(item, index: int, mods: set[str]) -> tuple[dict | None, list[d
     old = item.get("old")
     if isinstance(old, str) and old.strip():
         normalized["old"] = old.strip()
-
-    # op=retire 必须带理由：删记忆比写记忆危险，不能让「退休」静悄悄发生。
-    op_norm = (item.get("op") or "").strip().lower()
-    if op_norm == "retire":
-        reason = item.get("reason")
-        if not isinstance(reason, str) or not reason.strip():
-            errors.append(
-                err(index, "reason", "retire 必须给 reason：为什么让它退休（会写进行尾标记，以后能看见）")
-            )
-        else:
-            normalized["reason"] = reason.strip()
+    if norm_reason:
+        normalized["reason"] = norm_reason
+    if norm_ikey:
+        normalized["idempotency_key"] = norm_ikey
+    if norm_evidence:
+        normalized["evidence"] = norm_evidence
 
     return normalized, [], warns
 
 
-def validate(payload) -> dict:
-    if not isinstance(payload, list):
+def validate(payload, root: Path | None = None) -> dict:
+    """校验一份 payload：数组，或带 `items` 的对象形式（2026-11-02 批 6 起）。
+
+    `root` 是证据锚读来源文件时用的库根；不给就用本文件所在库的 `ROOT`。
+    对象形式另外认三件事：`expected_revision`（形状在这里校验，实际比对由 memwrite.py
+    在任何写入之前做）、`idempotency_key`、`batch_id`——后两件原样收进返回体的 `batch`。
+    """
+    batch: dict = {}
+    if isinstance(payload, dict) and isinstance(payload.get("items"), list):
+        items = payload["items"]
+        for key in ("idempotency_key", "batch_id"):
+            val = payload.get(key)
+            if val is not None and not isinstance(val, str):
+                return {"ok": False, "errors": [err(-1, key, f"{key} 必须是字符串")]}
+            if isinstance(val, str) and val.strip():
+                batch[key] = val.strip()
+        rev = payload.get("expected_revision")
+        if rev is not None:
+            if not isinstance(rev, dict) or not rev:
+                return {
+                    "ok": False,
+                    "errors": [
+                        err(
+                            -1,
+                            "expected_revision",
+                            "expected_revision 必须是 {相对路径: sha256 前 16 位} 的非空对象",
+                        )
+                    ],
+                }
+            for path_key, val in rev.items():
+                if not isinstance(val, str) or not HEX16_RE.match(val.strip().lower()):
+                    return {
+                        "ok": False,
+                        "errors": [
+                            err(
+                                -1,
+                                "expected_revision",
+                                f"expected_revision[{path_key!r}] 必须是 sha256 的前 16 位十六进制（拿到 {val!r}）",
+                            )
+                        ],
+                    }
+            batch["expected_revision"] = {str(k): v.strip().lower() for k, v in rev.items()}
+    elif isinstance(payload, list):
+        items = payload
+    else:
         return {
             "ok": False,
-            "errors": [err(-1, "payload", "顶层必须是 JSON 数组")],
+            "errors": [err(-1, "payload", "顶层必须是 JSON 数组，或带 items 的对象")],
         }
     mods = module_ids()
     if not mods:
@@ -349,8 +547,8 @@ def validate(payload) -> dict:
     normalized: list[dict] = []
     errors: list[dict] = []
     warns: list[dict] = []
-    for index, item in enumerate(payload):
-        norm, errs, wns = validate_item(item, index, mods)
+    for index, item in enumerate(items):
+        norm, errs, wns = validate_item(item, index, mods, root)
         warns.extend(wns)
         if errs:
             errors.extend(errs)
@@ -360,6 +558,8 @@ def validate(payload) -> dict:
         return {"ok": False, "errors": errors}
     log_warnings(warns)
     result: dict = {"ok": True, "normalized": normalized}
+    if batch:
+        result["batch"] = batch
     if warns:
         result["warnings"] = warns
     return result
@@ -433,6 +633,16 @@ BAD = [
         {"module": "813", "op": "delete", "keys": ["甲"], "body": "正文"},
         "op",
     ),
+    (
+        "retire 缺 reason",
+        {"module": "903", "op": "retire", "old": "旧的那一行"},
+        "reason",
+    ),
+    (
+        "缺证据锚",
+        {"module": "903", "op": "add", "keys": ["甲"], "body": "正文"},
+        "evidence",
+    ),
 ]
 
 
@@ -449,6 +659,29 @@ def selftest() -> int:
     def pick(prefer: str, i: int) -> str:
         return prefer if prefer in mods else ordered[i % len(ordered)]
 
+    # 证据锚（2026-11-02 批 6）：自测自己造一个来源文件当「库里的可见原文」，
+    # 不借真实记忆内容，换台机器也一样跑。模块白名单仍按真题的 references/ 取。
+    import tempfile
+
+    tmp_root = Path(tempfile.mkdtemp(prefix="write_gate_selftest_"))
+    (tmp_root / "references").mkdir(parents=True, exist_ok=True)
+    src_rel = "references/903-自测来源.md"
+    src_lines = [
+        "# 自测来源（write_gate --selftest 现造，不是真记忆）",
+        "",
+        "证据原文三（本文件第 3 行）：批 6 的证据锚自己去读来源文件。",
+        "证据原文四（本文件第 4 行）：写入方自报的 sha256 只当「声称」比对。",
+        "证据原文五（本文件第 5 行）：行号 + 原文对得上才算凭据。",
+    ]
+    (tmp_root / src_rel).write_text("\n".join(src_lines) + "\n", encoding="utf-8")
+
+    def ev(line_no: int = 3) -> dict:
+        return {
+            "source_file": src_rel,
+            "source_line": line_no,
+            "quote": src_lines[line_no - 1],
+        }
+
     good = []
     for i, sample in enumerate(GOOD):
         item = dict(sample)
@@ -457,6 +690,9 @@ def selftest() -> int:
         # 否则「换个库自测就红」这个坑会再踩一次。
         if item["module"] in SUBJECT_MODULES and not item.get("source"):
             item["source"] = "user-original"
+        # add / replace 现在必须带证据锚（批 6），样本统一挂自测来源。
+        if item.get("op") in ("add", "replace") and not item.get("evidence"):
+            item["evidence"] = ev()
         good.append(item)
     bad = []
     for i, (name, sample, field) in enumerate(BAD):
@@ -470,7 +706,7 @@ def selftest() -> int:
     failures: list[str] = []
     for no, sample in enumerate(good, 1):
         total += 1
-        res = validate([sample])
+        res = validate([sample], tmp_root)
         if res.get("ok") is True and res.get("normalized"):
             ok_count += 1
             print(f"  ✓ 好样本 {no} 通过")
@@ -479,7 +715,7 @@ def selftest() -> int:
             print(f"  ✗ 好样本 {no} 被拒")
     for no, (name, sample, field) in enumerate(bad, 1):
         total += 1
-        res = validate([sample])
+        res = validate([sample], tmp_root)
         errs = res.get("errors") or []
         reasons = [e.get("reason", "") for e in errs]
         chinese = all(HAN_RE.search(r) for r in reasons) if reasons else False
@@ -500,8 +736,9 @@ def selftest() -> int:
         "op": "add",
         "keys": ["日期锚点"],
         "body": "批 B 日期锚点自测。",
+        "evidence": ev(),
     }
-    res = validate([probe])
+    res = validate([probe], tmp_root)
     norm = (res.get("normalized") or [{}])[0]
     try:
         import memwrite
@@ -557,8 +794,9 @@ def selftest() -> int:
         "op": "add",
         "keys": ["状态延伸句"],
         "body": "她对甜食的好感一直都是这样。",
+        "evidence": ev(),
     }
-    res = validate([probe])
+    res = validate([probe], tmp_root)
     got = res.get("warnings") or []
     if res.get("ok") is True and len(got) == 1 and got[0].get("level") == "WARN":
         ok_count += 1
@@ -574,8 +812,9 @@ def selftest() -> int:
         "op": "add",
         "keys": ["状态延伸句"],
         "body": "2026-10-27 核：她对甜食的好感一直都是这样。",
+        "evidence": ev(),
     }
-    res = validate([probe])
+    res = validate([probe], tmp_root)
     got = res.get("warnings") or []
     if res.get("ok") is True and not got:
         ok_count += 1
@@ -583,6 +822,211 @@ def selftest() -> int:
     else:
         failures.append(f"规则样本 4 不该报 WARN：ok={res.get('ok')} warnings={got}")
         print("  ✗ 规则样本 4（带日期锚点）误报了 WARN")
+
+    # 批 6 规则用例 ⑤：add 不给证据锚 → 拒（field=evidence）。
+    total += 1
+    res = validate(
+        [{"module": pick("903", 0), "op": "add", "keys": ["证据"], "body": "没有证据锚的正文。"}],
+        tmp_root,
+    )
+    errs = res.get("errors") or []
+    if res.get("ok") is False and any(e.get("field") == "evidence" for e in errs):
+        ok_count += 1
+        print(f"  ✓ 规则样本 5（无证据锚）被拒：{errs[0].get('reason')}")
+    else:
+        failures.append(f"规则样本 5 应因缺证据被拒：ok={res.get('ok')} errors={errs}")
+        print("  ✗ 规则样本 5（无证据锚）没被拒")
+
+    # 批 6 规则用例 ⑥：真证据锚 → 过，且 normalized 里原样带着它。
+    total += 1
+    res = validate(
+        [
+            {
+                "module": pick("903", 0),
+                "op": "add",
+                "keys": ["证据"],
+                "body": "带真证据锚的正文。",
+                "evidence": ev(),
+            }
+        ],
+        tmp_root,
+    )
+    norm = (res.get("normalized") or [{}])[0]
+    if res.get("ok") is True and (norm.get("evidence") or {}).get("source_line") == 3:
+        ok_count += 1
+        print("  ✓ 规则样本 6（真证据锚）通过，并原样进 normalized")
+    else:
+        failures.append(f"规则样本 6 应通过并带 evidence：ok={res.get('ok')} normalized={norm}")
+        print("  ✗ 规则样本 6（真证据锚）没通过")
+
+    # 批 6 规则用例 ⑦：自报 sha256 编造 → 拒（自证无效）；报真值 → 放行。
+    total += 1
+    forged = ev()
+    forged["sha256"] = "0" * 64
+    res_forged = validate(
+        [
+            {
+                "module": pick("903", 0),
+                "op": "add",
+                "keys": ["证据"],
+                "body": "编造 sha256 的正文。",
+                "evidence": forged,
+            }
+        ],
+        tmp_root,
+    )
+    real_ev = ev()
+    real_ev["sha256"] = hashlib.sha256(real_ev["quote"].encode("utf-8")).hexdigest()
+    res_real = validate(
+        [
+            {
+                "module": pick("903", 1),
+                "op": "add",
+                "keys": ["证据"],
+                "body": "报真 sha256 的正文。",
+                "evidence": real_ev,
+            }
+        ],
+        tmp_root,
+    )
+    f_errs = res_forged.get("errors") or []
+    if (
+        res_forged.get("ok") is False
+        and any("自证无效" in (e.get("reason") or "") for e in f_errs)
+        and res_real.get("ok") is True
+    ):
+        ok_count += 1
+        print(f"  ✓ 规则样本 7（自报 sha256）编造的被拒、真值放行：{f_errs[0].get('reason')}")
+    else:
+        failures.append(
+            "规则样本 7 编造 sha256 应被拒（自证无效）、真值应放行："
+            f"forged_ok={res_forged.get('ok')} forged={f_errs} real_ok={res_real.get('ok')}"
+        )
+        print("  ✗ 规则样本 7（自报 sha256）没按预期处理")
+
+    # 批 6 规则用例 ⑧：retire 缺 reason → 拒。
+    # 2026-11-02 修：原来这条 error 在 `if errors: return` 之后被丢掉，静默放行。
+    total += 1
+    res = validate([{"module": pick("903", 0), "op": "retire", "old": "随便一行"}], tmp_root)
+    errs = res.get("errors") or []
+    if res.get("ok") is False and any(e.get("field") == "reason" for e in errs):
+        ok_count += 1
+        print(f"  ✓ 规则样本 8（retire 缺 reason）被拒：{errs[0].get('reason')}")
+    else:
+        failures.append(f"规则样本 8 retire 缺 reason 应被拒：ok={res.get('ok')} errors={errs}")
+        print("  ✗ 规则样本 8（retire 缺 reason）没被拒")
+
+    # 批 6 规则用例 ⑨：对象形式 → batch 收下 expected_revision / idempotency_key / batch_id。
+    total += 1
+    rev_ok = {"references/903-自测来源.md": "0123456789abcdef"}
+    res = validate(
+        {
+            "items": [
+                {
+                    "module": pick("903", 0),
+                    "op": "add",
+                    "keys": ["对象形式"],
+                    "body": "对象形式的正文。",
+                    "evidence": ev(),
+                }
+            ],
+            "expected_revision": dict(rev_ok),
+            "idempotency_key": "k-selftest-1",
+            "batch_id": "b-selftest-1",
+        },
+        tmp_root,
+    )
+    batch = res.get("batch") or {}
+    if (
+        res.get("ok") is True
+        and batch.get("idempotency_key") == "k-selftest-1"
+        and batch.get("batch_id") == "b-selftest-1"
+        and batch.get("expected_revision") == rev_ok
+    ):
+        ok_count += 1
+        print("  ✓ 规则样本 9（对象形式）通过，batch 收下 expected_revision / idempotency_key")
+    else:
+        failures.append(
+            f"规则样本 9 对象形式没按预期：ok={res.get('ok')} batch={batch} errors={res.get('errors')}"
+        )
+        print("  ✗ 规则样本 9（对象形式）没按预期")
+
+    # 批 6 规则用例 ⑩：expected_revision 形状错 → 拒。
+    total += 1
+    res = validate(
+        {
+            "items": [
+                {
+                    "module": pick("903", 0),
+                    "op": "add",
+                    "keys": ["对象形式"],
+                    "body": "正文。",
+                    "evidence": ev(),
+                }
+            ],
+            "expected_revision": {"references/903-自测来源.md": "NOT-A-SHA"},
+        },
+        tmp_root,
+    )
+    errs = res.get("errors") or []
+    if res.get("ok") is False and any(e.get("field") == "expected_revision" for e in errs):
+        ok_count += 1
+        print(f"  ✓ 规则样本 10（expected_revision 形状错）被拒：{errs[0].get('reason')}")
+    else:
+        failures.append(f"规则样本 10 形状错应被拒：ok={res.get('ok')} errors={errs}")
+        print("  ✗ 规则样本 10（expected_revision 形状错）没被拒")
+
+    # 批 6 规则用例 ⑪：quote 对不上（原文不在窗口里）→ 拒，并打出该行实际内容。
+    total += 1
+    res = validate(
+        [
+            {
+                "module": pick("903", 0),
+                "op": "add",
+                "keys": ["证据"],
+                "body": "证据对不上的正文。",
+                "evidence": {
+                    "source_file": src_rel,
+                    "source_line": 3,
+                    "quote": "这段原文根本不在来源文件里，是编的。",
+                },
+            }
+        ],
+        tmp_root,
+    )
+    errs = res.get("errors") or []
+    if res.get("ok") is False and any("找不到" in (e.get("reason") or "") for e in errs):
+        ok_count += 1
+        print(f"  ✓ 规则样本 11（quote 对不上）被拒：{errs[0].get('reason')}")
+    else:
+        failures.append(f"规则样本 11 quote 对不上应被拒：ok={res.get('ok')} errors={errs}")
+        print("  ✗ 规则样本 11（quote 对不上）没被拒")
+
+    # 规则样本 12（2026-11-02 口径收紧后的向后兼容判据）：对话来源、带 `source`、
+    # 不带 evidence 的 payload **必须通过**——公开文档里印的就是这种形状
+    # （`AGENTS.md` §2、`SKILL.md` §5 的示例 payload 没有 evidence）。
+    res = validate(
+        [
+            {
+                "module": "903",
+                "op": "add",
+                "keys": ["对话来源"],
+                "body": "对话里她随口说的一句话，没有 file:line。",
+                "source": "user-original",
+            }
+        ],
+        tmp_root,
+    )
+    if res.get("ok") is True:
+        ok_count += 1
+        total += 1
+        print("  ✓ 规则样本 12（对话来源带 source、不带 evidence）通过——向后兼容判据")
+    else:
+        total += 1
+        failures.append(
+            f"规则样本 12 对话来源应放行：ok={res.get('ok')} errors={res.get('errors')}"
+        )
+        print("  ✗ 规则样本 12（对话来源带 source、不带 evidence）被拒了")
 
     LOG_WARNINGS = prev_log
     print(f"selftest {ok_count}/{total}")

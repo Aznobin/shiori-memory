@@ -29,6 +29,26 @@ BEGIN = "<!-- TICK:BEGIN 机器生成，手改会被下次运行覆盖 -->"
 END = "<!-- TICK:END -->"
 
 
+NO_GIT = "（无 git，跳过）"
+
+
+def is_git_repo() -> bool:
+    """这份是不是 git 仓库（zip 装进来的没有 .git）。
+
+    git 程序本身不在也算没有。下面三条 git 查询没 git 时整条不发，免得把 git 的
+    报错原文（fatal: not a git repository…）当数字抄进巡检表（2026-11-02 全新包实测）。
+    """
+    if (ROOT / ".git").exists():
+        return True
+    try:
+        p = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=str(ROOT),
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return p.returncode == 0
+
+
 def run(args: list[str]) -> str:
     p = subprocess.run(args, cwd=str(ROOT), capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
@@ -54,10 +74,14 @@ def collect() -> dict[str, str]:
         "stats": [py, str(ROOT / "tools" / "frag.py"), "stats"],
         "lint": [py, str(ROOT / "tools" / "frag.py"), "lint"],
         "recall": [py, str(ROOT / "tools" / "recall_eval.py")],
-        "commits": ["git", "rev-list", "--all", "--count"],
-        "status": ["git", "status", "--porcelain"],
-        "lr": ["git", "rev-list", "--left-right", "--count", "origin/main...HEAD"],
     }
+    git_ok = is_git_repo()
+    if git_ok:
+        jobs.update({
+            "commits": ["git", "rev-list", "--all", "--count"],
+            "status": ["git", "status", "--porcelain"],
+            "lr": ["git", "rev-list", "--left-right", "--count", "origin/main...HEAD"],
+        })
     with ThreadPoolExecutor(max_workers=len(jobs)) as ex:
         futures = {k: ex.submit(run, v) for k, v in jobs.items()}
         out = {k: futures[k].result() for k in jobs}
@@ -78,15 +102,22 @@ def collect() -> dict[str, str]:
     d["recall@5"] = re.sub(r"\s+", " ", grab(r"recall@5(.*)", recall)).strip()
     d["MRR"] = grab(r"MRR\s+([\d.]+)", recall)
 
-    d["提交"] = out["commits"].strip() or "?"
-    st = out["status"].strip()
-    d["工作区"] = "clean" if not st else f"{len(st.splitlines())} 个文件未提交"
-    lr = out["lr"].strip()
-    if lr and len(lr.split()) == 2:
-        behind, ahead = lr.split()
-        d["同步"] = "与 origin 一致" if behind == "0" and ahead == "0" else f"领先 {ahead} / 落后 {behind}"
+    if git_ok:
+        d["提交"] = out["commits"].strip() or "?"
+        st = out["status"].strip()
+        d["工作区"] = "clean" if not st else f"{len(st.splitlines())} 个文件未提交"
+        lr = out["lr"].strip()
+        if lr and len(lr.split()) == 2:
+            behind, ahead = lr.split()
+            d["同步"] = "与 origin 一致" if behind == "0" and ahead == "0" else f"领先 {ahead} / 落后 {behind}"
+        else:
+            d["同步"] = "无法比对 origin"
     else:
-        d["同步"] = "无法比对 origin"
+        # 不是 git 仓库：git 的报错全走 stderr，直接当值写进表里就会印出
+        # 「fatal: not a git repository…」；三格统一写可读文本。
+        d["提交"] = NO_GIT
+        d["工作区"] = NO_GIT
+        d["同步"] = NO_GIT
     return d
 
 

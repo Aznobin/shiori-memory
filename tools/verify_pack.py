@@ -8,10 +8,16 @@
 用法：
     python tools/verify_pack.py             # 从 framework 分支导出最新包来测
     python tools/verify_pack.py --src DIR   # 测一个现成的产物目录
+    python tools/verify_pack.py --src       # 只写 --src 不带值：测 dist/ 里最新的那份
     python tools/verify_pack.py --keep      # 保留临时目录，方便手看
     python tools/verify_pack.py --net       # 额外测 update.py check（要网络）
 
 判据：P0 全过 → exit 0；任何 P0 红 → exit 1。发版前必须绿。
+
+没有 git（zip 装进来的那种）不算失败：framework 分支导出降级成 P1 跳过并写明原因，
+能测的照测；有 git 时照旧真导出、真校验。产物的取用顺序：`--src DIR` → `--src`（dist 最新）
+→ framework 分支导出 → 本机 dist/ 最新。（2026-11-02 加：原来没 .git 就一行报错 exit 1，
+等于 zip 用户永远测不了自己手上那份包。）
 """
 
 from __future__ import annotations
@@ -29,6 +35,9 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from paths import newest_dist  # noqa: E402
+
 BRANCH = "framework"
 
 # 2026-10-27 阶段3补（Lead 裁定）：公开包 memory/ 只允许放「语气模板」占位——新用户装完要能直接填。
@@ -301,11 +310,39 @@ def check_assets(pkg: Path) -> None:
            "干净" if not present else "不该在: " + ", ".join(present))
 
 
+def local_dist() -> Path | None:
+    """本机 dist/ 里最新的那份产物。
+
+    取包一律按版本号元组比，不按文件名字典序（字符串序会把 `1.0.9` 排在 `1.0.26` 后面，
+    这条在打包与镜像流程上踩过两次）。
+    """
+    return newest_dist()
+
+
+def print_report(keep: bool, tmp: Path, pkg: Path) -> int:
+    print("-" * 60)
+    width = max(len(r[1]) for r in _results)
+    for level, name, status, detail in _results:
+        mark = {"PASS": "✅", "WARN": "⚠️ ", "FAIL": "❌"}[status]
+        print(f"{mark} [{level}] {name.ljust(width)}  {detail}")
+
+    p0_fail = [r for r in _results if r[0] == P0 and r[2] == "FAIL"]
+    p1_fail = [r for r in _results if r[0] == P1 and r[2] == "FAIL"]
+    print("-" * 60)
+    print(f"P0 失败 {len(p0_fail)} · P1 失败 {len(p1_fail)}")
+    if keep:
+        print(f"临时目录保留在: {pkg}")
+    else:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return 1 if p0_fail else 0
+
+
 def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
-    ap.add_argument("--src", help="现成的产物目录（不导出分支）")
+    ap.add_argument("--src", nargs="?", const="dist", default=None,
+                    help="现成的产物目录；只写 --src 不带值就用 dist/ 里最新的那份")
     ap.add_argument("--keep", action="store_true", help="保留临时目录")
     ap.add_argument("--net", action="store_true", help="联网测 update.py check")
     args = ap.parse_args()
@@ -313,18 +350,43 @@ def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="verify-pack-"))
     pkg = tmp / "pkg"
     pkg.mkdir()
-    if args.src:
-        src = Path(args.src).resolve()
+
+    src_arg = args.src
+    if src_arg == "dist":            # 裸 --src：明确要 dist/ 里最新那份
+        d = local_dist()
+        if d is None:
+            print("dist/ 里没有可用的产物目录（先跑 python tools/pack.py 出一个？）")
+            shutil.rmtree(tmp, ignore_errors=True)
+            return 1
+        src_arg = str(d)
+
+    if src_arg:
+        src = Path(src_arg).resolve()
         if not src.is_dir():
             print(f"目录不存在: {src}")
+            shutil.rmtree(tmp, ignore_errors=True)
             return 1
         shutil.copytree(src, pkg, dirs_exist_ok=True)
         origin = str(src)
     else:
-        if not export_from_branch(pkg):
-            print("导出 framework 分支失败（没 git？或分支不存在）")
-            return 1
-        origin = f"git archive {BRANCH}"
+        if export_from_branch(pkg):
+            origin = f"git archive {BRANCH}"
+        else:
+            # 没有 git / 没有 framework 分支：zip 装进来的包就是这种，不算失败。
+            # 能拿本机 dist/ 就接着测，拿不到就跳过——两条路都写清原因，绝不静默。
+            d = local_dist()
+            if d is not None:
+                shutil.copytree(d, pkg, dirs_exist_ok=True)
+                origin = f"本机 dist/ 最新产物 {d.name}"
+                record(P1, f"framework 分支导出（{BRANCH}）", None,
+                       f"跳过：没 git / 没 {BRANCH} 分支；改用本机 dist/ 最新产物 {d.name}")
+            else:
+                print(f"没 git / 没 {BRANCH} 分支，也没有本机 dist/ 产物可测——跳过。")
+                print("zip 安装就是这种情况。要真校验，指定一份现成产物："
+                      "python tools/verify_pack.py --src DIR")
+                record(P1, f"framework 分支导出（{BRANCH}）", None,
+                       "跳过：没 git / 没分支，也没有本机 dist/ 产物")
+                return print_report(args.keep, tmp, pkg)
 
     print(f"产物来源: {origin}")
     print("-" * 60)
@@ -337,22 +399,7 @@ def main() -> int:
     check_routes(pkg)
     check_health(pkg)
     check_update(pkg, args.net)
-    print("-" * 60)
-
-    width = max(len(r[1]) for r in _results)
-    for level, name, status, detail in _results:
-        mark = {"PASS": "✅", "WARN": "⚠️ ", "FAIL": "❌"}[status]
-        print(f"{mark} [{level}] {name.ljust(width)}  {detail}")
-
-    p0_fail = [r for r in _results if r[0] == P0 and r[2] == "FAIL"]
-    p1_fail = [r for r in _results if r[0] == P1 and r[2] == "FAIL"]
-    print("-" * 60)
-    print(f"P0 失败 {len(p0_fail)} · P1 失败 {len(p1_fail)}")
-    if args.keep:
-        print(f"临时目录保留在: {pkg}")
-    else:
-        shutil.rmtree(tmp, ignore_errors=True)
-    return 1 if p0_fail else 0
+    return print_report(args.keep, tmp, pkg)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
-"""程序写记忆（Stage 3 接入）：把 write_gate 校验过的 payload 真正插进模块文件。
+"""程序写记忆（Stage 3 接入 + 批 6 审计层）：把 write_gate 校验过的 payload 真正插进模块文件。
+
+批 6（2026-11-02）加的三件，开关都在 `tools/config.py` 的 `write` 段：
+  ① 幂等键：`idempotency_key`（不给就按内容算 `content_key`）——同 key 同内容 = 重放，
+     直接跳过并标 `mode="replay"`；同 key 异内容 = `{"error": "idempotency", "conflicts": [...]}`，
+     **整批零写入**（照 dream `lib/knowledge-store.js:420-453`）。账在 `state/write_idem.jsonl`。
+  ② 并发令牌：批次级 `expected_revision`＝`{相对路径: sha256 前 16 位}`，**任何写入之前**
+     统一校验，任一不符 = `{"error": "revision", ...}`，整批零写入（先校验、后规划、再落盘）。
+  ③ 软删回收站：`retire` 挂标记之前先把**原行逐字**抄进 `state/recycle/<日期>.jsonl`
+     （带 reason 与被删行的 sha256）；`--restore <recycle_id>` 按带标记那一行内容精确匹配放回。
+落盘之后**重新读盘**给每个写过的文件造回执，写进 `state/write_receipts.jsonl`
+（file_sha256 / 行数 / 小节 / 正文 sha256 / 证据锚）——这才是权威凭据，`report()` 那行 print 不是。
+`--verify-receipts` 按回执复验磁盘，对不上就报。
 
 模型只负责产出 payload（模块号 / 小标题 / 正文几行），剩下全由本脚本干：
 定位模块文件 → 找小节 → 去重 → 插入 → 改 frontmatter 的 updated →
@@ -18,7 +30,7 @@ payload 形状（数组，每项一条）：
       "section": "硬禁忌", "body": "第一行正文\\n第二行正文"}]
 
 field 说明：
-    module   必填，模块号（`813`），白名单从 references/ 实际文件名现取
+    module   必填，模块号（`813`），白名单从 memory/ 与 references/ 实际文件名现取
     op       必填，当前只支持 add（merge / weight 仍走人工，脚本会明确拒绝）
     keys     必填，1~12 字的主题词，进 keys 校验
     section  可选，`## 小节标题` 的名字；不给就落在文件末尾
@@ -34,14 +46,17 @@ field 说明：
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import re
 import subprocess
 import sys
 import tempfile
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+
+from config import write as cfg_write
 
 TOOLS = Path(__file__).resolve().parent
 DEFAULT_ROOT = TOOLS.parent
@@ -62,22 +77,218 @@ def load_gate():
     return mod
 
 
-def prepare(payload) -> tuple[dict, list[dict]]:
+# ---- 审计层三件的账（2026-11-02 批 6）--------------------------------------
+# 运行期数据一律落根下 state/，不进 memory/ 也不进 references/：
+#   state/write_idem.jsonl      幂等账（哪个 key 写过、内容指纹是什么）
+#   state/write_receipts.jsonl  回执（写完重新读盘按实况造，可独立复验）
+#   state/recycle/<日期>.jsonl  软删回收站（原行逐字 + reason + 行 sha256）
+def sha256_hex(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def file_sha(path: Path) -> str:
+    """整个文件的 sha256；读不到就返回空串（别抛，闸门要如实报「读不到」）。"""
+    try:
+        return sha256_hex(Path(path).read_bytes())
+    except OSError:
+        return ""
+
+
+def rel_of(root: Path, path: Path) -> str:
+    """相对库根的路径，一律正斜杠——回执和 `expected_revision` 都按它比对。"""
+    try:
+        return Path(path).resolve().relative_to(Path(root).resolve()).as_posix()
+    except ValueError:
+        return Path(path).as_posix()
+
+
+def content_key(item: dict) -> str:
+    """内容指纹：同一个 key 下用来判断「是不是同一件事」。
+
+    **故意不含**写入端事后补的日期锚点（`date`/`date_auto`）与行尾来源标记——
+    它们由本脚本按当天补，拿去算指纹会让「同一件事」换一天就不认识了。
+    """
+    material = {
+        "module": item.get("module"),
+        "op": item.get("op"),
+        "section": item.get("section"),
+        "old": item.get("old"),
+        "body": item.get("body"),
+        "reason": item.get("reason"),
+    }
+    raw = json.dumps(material, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return sha256_hex(raw.encode("utf-8"))[:16]
+
+
+def key_of(item: dict) -> tuple[str, bool]:
+    """取这条的幂等键：给了 `idempotency_key` 就用它，没给按内容算。返回 (key, 是否显式)。"""
+    ikey = item.get("idempotency_key")
+    if isinstance(ikey, str) and ikey.strip():
+        return ikey.strip(), True
+    return content_key(item), False
+
+
+def _append_jsonl(path: Path, row: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8", newline="") as fh:
+        fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+    if not Path(path).is_file():
+        return []
+    rows: list[dict] = []
+    try:
+        for line in Path(path).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                rows.append(obj)
+    except OSError:
+        return []
+    return rows
+
+
+def state_dir(root: Path) -> Path:
+    return Path(root) / "state"
+
+
+def load_idem(root: Path) -> dict[str, dict]:
+    """幂等账：{key: 第一条记录}。同一个 key 只认第一条，后面的都是重放或冲突。"""
+    table: dict[str, dict] = {}
+    for row in _read_jsonl(state_dir(root) / "write_idem.jsonl"):
+        key = row.get("key")
+        if isinstance(key, str) and key not in table:
+            table[key] = row
+    return table
+
+
+def write_recycle(root: Path, rec: dict, today: str) -> None:
+    _append_jsonl(state_dir(root) / "recycle" / f"{today}.jsonl", rec)
+
+
+def all_recycle(root: Path) -> list[dict]:
+    rdir = state_dir(root) / "recycle"
+    rows: list[dict] = []
+    if rdir.is_dir():
+        for path in sorted(rdir.glob("*.jsonl")):
+            rows.extend(_read_jsonl(path))
+    return rows
+
+
+def find_recycle(root: Path, recycle_id: str) -> dict | None:
+    for row in all_recycle(root):
+        if row.get("recycle_id") == recycle_id:
+            return row
+    return None
+
+
+def receipt_for(root: Path, path: Path, section: str, item: dict, batch_id: str, at: str) -> dict:
+    """落盘之后**重新读盘**造回执：一切数字都来自磁盘实况，不来自内存里的计划。"""
+    lines, _crlf = read_doc(path)
+    body = "\n".join(to_bullets(item.get("body") or ""))
+    row = {
+        "at": at,
+        "batch_id": batch_id,
+        "file": rel_of(root, path),
+        "file_sha256": file_sha(path),
+        "line_count": count_lines(lines),
+        "section": section,
+        "module": item.get("module"),
+        "op": item.get("op"),
+        "keys": item.get("keys") or [],
+        "body_sha256": sha256_hex(body.encode("utf-8")),
+        "date": item.get("date") or "",
+    }
+    ev = item.get("evidence")
+    if isinstance(ev, dict):
+        row["evidence"] = {
+            "source_file": ev.get("source_file"),
+            "source_line": ev.get("source_line"),
+            "quote": ev.get("quote"),
+            "sha256": ev.get("sha256") or "",
+        }
+    return row
+
+
+def write_receipts(root: Path, rows: list[dict]) -> None:
+    for row in rows:
+        _append_jsonl(state_dir(root) / "write_receipts.jsonl", row)
+
+
+def verify_receipts(root: Path, limit: int = 200) -> list[dict]:
+    """按回执复验磁盘：**每个文件只看最新那一条回执**。
+
+    一个文件被写过多次时，老回执记的是「那一刻」的内容快照，后面再写一次它当然对不上——
+    那不是「写完被改坏」，是「后来又写过」。所以判据只取每个文件最新一条；更早的
+    自然被后续写入取代（回执是时间点证据，不是「永远如此」的断言）。
+    文件没了 / 最新一条对不上，都如实报出来。
+    """
+    rows = _read_jsonl(state_dir(root) / "write_receipts.jsonl")
+    tail = rows[-limit:] if limit else rows
+    latest: dict[str, dict] = {}
+    for row in tail:
+        rel = row.get("file") or ""
+        if rel:
+            latest[rel] = row
+    problems: list[dict] = []
+    for rel, row in latest.items():
+        path = Path(root) / rel
+        if not path.is_file():
+            problems.append({"file": rel, "problem": "文件不在了（凭据指向的路径读不到）"})
+            continue
+        now = file_sha(path)
+        if now != row.get("file_sha256"):
+            problems.append(
+                {
+                    "file": rel,
+                    "problem": "内容跟凭据对不上（没落地，或者写完又被改过）",
+                    "receipt_sha256": row.get("file_sha256"),
+                    "current_sha256": now,
+                }
+            )
+    return problems
+
+
+def _payload_items(payload) -> list:
+    """payload 可以是数组，也可以是带 `items` 的对象形式（2026-11-02 批 6）。"""
+    if isinstance(payload, dict) and isinstance(payload.get("items"), list):
+        return payload["items"]
+    return payload if isinstance(payload, list) else []
+
+
+def prepare(payload, root: Path | None = None) -> tuple[dict, list[dict]]:
     """过闸门 + 把闸门不认识的字段（如 `section`）按序号接回去。
 
-    `write_gate.validate()` 的 normalized 只保留 module / op / keys / body / ids /
-    date / updated / weight，`section` 会被丢掉——不接回来，所有条目都会落到文件末尾。
+    `write_gate.validate()` 的 normalized 只保留它认识的字段，`section` 会被丢掉——
+    不接回来，所有条目都会落到文件末尾。**返回保持两元组**：`tools/import_notes.py`
+    按这个签名解包，别动它；批 6 加的批次信息走 `prepare_full()`。
     """
-    gate_result = load_gate().validate(payload)
+    gate_result = load_gate().validate(payload, root)
     if gate_result.get("ok") is not True:
         return gate_result, []
     normalized = gate_result["normalized"]
-    for src, dst in zip(payload, normalized):
+    for src, dst in zip(_payload_items(payload), normalized):
         if isinstance(src, dict) and isinstance(src.get("section"), str):
             section = src["section"].strip()
             if section:
                 dst["section"] = section
     return gate_result, normalized
+
+
+def prepare_full(payload, root: Path | None = None) -> tuple[dict, list[dict], dict]:
+    """同 `prepare()`，但把批次级字段也带出来：`(gate_result, normalized, batch)`。
+
+    `batch` 里是 `expected_revision` / `idempotency_key` / `batch_id`（形状由闸门校验）。
+    """
+    gate_result, normalized = prepare(payload, root)
+    batch = gate_result.get("batch") if gate_result.get("ok") is True else {}
+    return gate_result, normalized, dict(batch or {})
 
 
 def frontmatter_end(lines: list[str]) -> int:
@@ -130,6 +341,85 @@ def module_file(root: Path, module: str) -> Path:
         names = " / ".join(p.name for p in hits)
         raise SystemExit(f"[拒绝] 模块号 {module} 撞了多个文件：{names}")
     return hits[0]
+
+
+# ---- 标准号位与「下一步」提示（2026-11-02 task-22 D11）-----------------------
+# 发行包里 `memory/` 只发骨架节点与语气模板，SKILL.md 号位表里登记的 `001`/`101`/… 是
+# 「标准号位、文件还没建」。新用户照表去写，闸门只回一句「不在现有白名单里」
+# （那句在 write_gate.py:293，白名单由 paths.module_files() 按真实文件名现取），
+# 谁也不知道下一步该敲什么。这里把那句补成「先建出来、再重跑」，命令可直接复制。
+MODULES_BLOCK_RE = re.compile(r"<!--\s*MODULES:BEGIN.*?-->(.*?)<!--\s*MODULES:END\s*-->", re.S)
+MODULES_ROW_RE = re.compile(r"^\|\s*`?(\d{2,3}[a-z]?)-([^`|]+?)`?\s*\|")
+WHITELIST_REASON_RE = re.compile(r"模块号\s*['\"]([^'\"]+)['\"]")
+
+
+def has_module_file(root: Path, module: str) -> bool:
+    """这个号位有没有文件（口径与 module_file() 一致：`memory/` 与 `references/` 各一层）。"""
+    if not re.match(r"^\d{2,3}[a-z]?$", module):
+        return False
+    for base in module_dirs(root):
+        if base.is_dir() and any(
+            True for p in base.glob(f"{module}-*.md") if not p.name.startswith("_")
+        ):
+            return True
+    return False
+
+
+def standard_slots(root: Path) -> dict[str, str]:
+    """SKILL.md 里登记的标准号位 → {号: 名字}。
+
+    先认 `<!-- MODULES:BEGIN/END -->` 块；没有块就退化成整份扫 `| `NNN-名字` |` 行
+    （本机私库的 SKILL.md 没有这个块，扫不出东西就返回空表，不猜）。
+    """
+    skill = root / "SKILL.md"
+    if not skill.is_file():
+        return {}
+    try:
+        text = skill.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    block = MODULES_BLOCK_RE.search(text)
+    slots: dict[str, str] = {}
+    for line in (block.group(1) if block else text).splitlines():
+        row = MODULES_ROW_RE.match(line.strip())
+        if row:
+            slots.setdefault(row.group(1), row.group(2).strip())
+    return slots
+
+
+def rejection_hints(root: Path, gate_result: dict) -> list[str]:
+    """把「不在现有白名单里」补成可操作的下一步；不是标准号位就一个字不补。
+
+    判据（task-22 D11）：`001` 这类标准号位要给出能复制的 `--new-module` 命令；
+    `999` 这种真乱号照原样拒——闸门一个字没松。
+    """
+    hints: list[str] = []
+    slots = standard_slots(root)
+    if not slots:
+        return hints
+    for e in gate_result.get("errors", []):
+        if e.get("field") != "module":
+            continue
+        m = WHITELIST_REASON_RE.search(str(e.get("reason", "")))
+        if not m:
+            continue
+        mod = m.group(1).strip()
+        if has_module_file(root, mod):
+            continue
+        name = slots.get(mod)
+        if not name:
+            continue
+        if mod.isdigit() and mod.endswith("0"):
+            hints.append(
+                f"提示：`{mod}` 是骨架节点，只能由 `tools/skeleton_nodes.py` 生成——内容写到末位非 0 的号位。"
+            )
+            continue
+        hints.append(
+            f"提示：`{mod}` 是本库标准号位，包里这个文件还没建（只发骨架与语气模板）。"
+            "先建出来，再重跑上面那条写入："
+        )
+        hints.append(f"    python tools/memwrite.py --new-module {mod}-{name}")
+    return hints
 
 
 def read_doc(path: Path) -> tuple[list[str], bool]:
@@ -317,15 +607,118 @@ def run(cmd: list[str], root: Path) -> tuple[int, str]:
     return proc.returncode, out.strip()
 
 
-def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
+def apply(root: Path, items: list[dict], today: str, dry: bool, batch: dict | None = None) -> dict:
     planned: list[dict] = []
     errors: list[dict] = []
     skipped: list[dict] = []
     created: list[str] = []
+    # ---- 审计层三件（batch6，2026-11-02）----
+    batch = dict(batch or {})
+    batch_id = str(batch.get("batch_id") or "")
+    replay: list[dict] = []          # ① 命中的重放（跳过写入，但要说清是哪一次写过的）
+    conflicts: list[dict] = []       # ① 同 key 异内容：整批零写入
+    receipts: list[dict] = []        # 写完按磁盘实况造的回执
+    pending_recycle: list[tuple[dict, dict]] = []   # (计划条目, 回收站记录)
+    batch_keys: dict[str, dict] = {}   # 本批已用过的 key（先到先得）
     # 同一个模块可能有多条：在内存里接力改，避免第二条把第一条覆盖掉
     work: dict[Path, dict] = {}
 
+    # ② 乐观并发令牌：`{"relative/path.md": "sha256 前 16 位"}`。
+    # 先统一校验、任一条不符就整批不写——照 dream `updateLessonsBatch`（先校验后落盘）。
+    expected = batch.get("expected_revision") or {}
+    if expected and cfg_write("revision", True):
+        mismatch: dict[str, dict] = {}
+        for rel, want in expected.items():
+            path = Path(root) / rel
+            if not path.is_file():
+                mismatch[rel] = {"expected": want, "current": "（文件读不到）"}
+                continue
+            current = file_sha(path)[:16]
+            if current != want:
+                mismatch[rel] = {"expected": want, "current": current}
+        if mismatch:
+            return {
+                "ok": False,
+                "error": "revision",
+                "errors": [
+                    {
+                        "index": -1,
+                        "field": "expected_revision",
+                        "reason": "令牌对不上：这几份在你看过之后又被改过，整批一条都没写",
+                    }
+                ],
+                "expectedRevision": expected,
+                "currentRevision": {r: v["current"] for r, v in mismatch.items()},
+                "mismatch": mismatch,
+                "skipped": [], "planned": [], "created": [], "replay": [], "receipts": [],
+            }
+
+    # ① 幂等：先看本批内重复、再看历史账。给了 `idempotency_key` 就用它，没给按内容算。
+    idem = load_idem(root) if cfg_write("idempotency", True) else {}
     for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        key, explicit = key_of(item)
+        ck = content_key(item)
+        first = batch_keys.get(key)
+        if first is not None:
+            if first["content_key"] == ck:
+                replay.append({
+                    "index": index, "key": key, "explicit": explicit,
+                    "reason": f"同一批里出现重复项（第一次在第 {first['index']} 项）",
+                    "content_key": ck,
+                })
+            else:
+                conflicts.append({
+                    "index": index, "key": key, "explicit": explicit,
+                    "reason": (f"同一个 key 在本批里配了两份不同内容（第一次在第 {first['index']} 项）："
+                               f"这不是重放，也不是新事"),
+                    "stored": first["content_key"], "current": ck,
+                })
+            continue
+        hist = idem.get(key)
+        if hist is not None:
+            if hist.get("content_key") == ck:
+                replay.append({
+                    "index": index, "key": key, "explicit": explicit,
+                    "reason": (f"这个 key 已经用过（第一次 {hist.get('at') or '更早'}，"
+                               f"批次 {hist.get('batch_id') or '未记'}）"),
+                    "content_key": ck,
+                })
+            else:
+                conflicts.append({
+                    "index": index, "key": key, "explicit": explicit,
+                    "reason": (f"这个 key 用过，但这次的内容跟第一次不同（第一次 {hist.get('at') or '更早'}，"
+                               f"批次 {hist.get('batch_id') or '未记'}）"),
+                    "stored": hist.get("content_key"), "current": ck,
+                })
+            continue
+        batch_keys[key] = {"index": index, "content_key": ck, "explicit": explicit}
+
+    # 同 key 异内容：不是重放也不是新事 → 整批零写入（照 dream `knowledge-store.js:420-453` 的
+    # 「同 key 异 hash 报错」，不静默吞掉，也不挑一条写一半）。
+    if conflicts:
+        return {
+            "ok": False,
+            "error": "idempotency",
+            "errors": [
+                {
+                    "index": c["index"],
+                    "field": "idempotency_key",
+                    "reason": c["reason"],
+                }
+                for c in conflicts
+            ],
+            "conflicts": conflicts,
+            "skipped": [], "planned": [], "created": [], "replay": replay, "receipts": [],
+        }
+
+    replay_indexes = {r["index"] for r in replay}
+
+    for index, item in enumerate(items):
+        if index in replay_indexes:
+            # ① 重放：这一条已经写过了，跳过写入，但仍然在回执里说清是哪一次写过的
+            continue
         op = item["op"]
         if op not in ("add", "replace", "retire"):
             errors.append(
@@ -432,9 +825,31 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
                 )
                 continue
             before_now = count_lines(lines)
-            lines[hit] = lines[hit].rstrip() + f"（已退休 {today}：{item['reason']}）"
+            original = lines[hit]
+            marked = original.rstrip() + f"（已退休 {today}：{item['reason']}）"
+            # ③ 软删回收站：挂标记**之前**把原行逐字抄一份，原件一个字节都不丢。
+            # 软删是可回查操作，所以凭据用「理由 + 被删行的 sha256」，不上正文级引用。
+            rec = {
+                "at": datetime.now().isoformat(timespec="seconds"),
+                "batch_id": batch_id,
+                "recycle_id": "rc-" + sha256_hex(f"{rel_of(root, path)}|{hit + 1}|{original}".encode("utf-8"))[:12],
+                "file": rel_of(root, path),
+                "line_no": hit + 1,
+                "line": original,
+                "line_sha256": sha256_hex(original.encode("utf-8")),
+                "reason": item["reason"],
+                "anchor": {
+                    "file_sha256_before": file_sha(path),
+                    "file_lines_before": before_now,
+                    "line_no": hit + 1,
+                },
+                "marked_line": marked,
+                "marked_line_sha256": sha256_hex(marked.encode("utf-8")),
+            }
+            lines[hit] = marked
             stamp = max(item.get("updated") or item.get("date") or today, today)
             anchor = set_updated(lines, stamp)
+            pending_recycle.append((rec, {"index": index, "path": path}))
             planned.append(
                 {
                     "index": index,
@@ -445,6 +860,7 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
                     "section": f"（第 {hit + 1} 行标退休）",
                     "updated_line": anchor,
                     "content": lines,
+                    "recycle": rec,
                 }
             )
             continue
@@ -530,7 +946,51 @@ def apply(root: Path, items: list[dict], today: str, dry: bool) -> dict:
         for path, state in work.items():
             write_doc(path, state["lines"], state["crlf"])
 
-    return {"ok": True, "errors": [], "skipped": skipped, "planned": planned, "created": created}
+    # ③ 回收站落账：等文件真写完才记，免得出现「记了删档、文件却没落地」。
+    if not dry and cfg_write("recycle", True):
+        for rec, _plan in pending_recycle:
+            write_recycle(root, rec, today)
+
+    # 回执：落盘之后**重新读盘**造，数字全来自磁盘实况，不来自内存里的计划。
+    if not dry:
+        at = datetime.now().isoformat(timespec="seconds")
+        for p in planned:
+            item = items[p["index"]] if 0 <= p["index"] < len(items) else {}
+            receipts.append(
+                receipt_for(root, p["path"], p.get("section") or "", item, batch_id, at)
+            )
+        write_receipts(root, receipts)
+
+        # ① 幂等账：只记「真写进去了」的那些；被 already_there / 重放跳过的别记账，
+        # 否则下次同样的内容会被当成重放，而正文其实压根没落地。
+        if cfg_write("idempotency", True):
+            idem_path = state_dir(root) / "write_idem.jsonl"
+            planned_indexes = {p["index"] for p in planned}
+            for key, info in batch_keys.items():
+                if info["index"] not in planned_indexes:
+                    continue
+                _append_jsonl(
+                    idem_path,
+                    {
+                        "at": at,
+                        "key": key,
+                        "explicit": info["explicit"],
+                        "content_key": info["content_key"],
+                        "batch_id": batch_id,
+                        "index": info["index"],
+                    },
+                )
+
+    return {
+        "ok": True,
+        "errors": [],
+        "skipped": skipped,
+        "planned": planned,
+        "created": created,
+        "replay": replay,
+        "receipts": receipts,
+        "batch_id": batch_id,
+    }
 
 
 def report(result: dict, dry: bool) -> None:
@@ -538,6 +998,8 @@ def report(result: dict, dry: bool) -> None:
         print("被拒绝，一条都没写：")
         for e in result["errors"]:
             print(f"  ✗ [{e['index']}] {e['field']}: {e['reason']}")
+        for r in result.get("replay") or []:
+            print(f"  ~ 重放 [{r['index']}] key={r['key']}：{r['reason']}")
         return
     planned = result["planned"]
     for c in result.get("created") or []:
@@ -554,6 +1016,68 @@ def report(result: dict, dry: bool) -> None:
             print(f"      frontmatter updated 改在第 {item['updated_line']} 行")
     for s in result["skipped"]:
         print(f"  - 跳过 [{s['index']}] {s['file']}：{s['reason']}")
+    for r in result.get("replay") or []:
+        mark = "显式" if r.get("explicit") else "自动"
+        print(f"  ~ 重放 [{r['index']}] key={r['key']}（{mark}）已写过，不重复写：{r['reason']}")
+    n_receipts = len(result.get("receipts") or [])
+    if n_receipts:
+        print(f"  · 回执 {n_receipts} 条 → state/write_receipts.jsonl（--verify-receipts 可复核）")
+
+
+def restore(root: Path, recycle_id: str, dry: bool = False) -> int:
+    """按回收站记录，把被退休的那一行原样放回（批 6 · 软删回收站）。
+
+    定位方式是**内容精确匹配**，不按行号：被退休之后文件别处可能又变过，记下来的
+    行号早就不作数；带标记的那一行只要还在，就一定找得到。找到 0 处或 2 处以上都
+    拒绝动手——那说明这行被人改过或删过，该由人看一眼，不是脚本猜的事。
+    """
+    rec = find_recycle(root, recycle_id)
+    if not rec:
+        print(f"[拒绝] 回收站里没有 {recycle_id}：先看 state/recycle/<日期>.jsonl 里记的 recycle_id")
+        return 1
+    rel = str(rec.get("file") or "")
+    path = Path(root) / rel
+    if not path.is_file():
+        print(f"[拒绝] 回收站记录指向的文件读不到：{rel}")
+        return 1
+    lines, crlf = read_doc(path)
+    marked = str(rec.get("marked_line") or "").strip()
+    if not marked:
+        print(f"[拒绝] 回收站记录 {recycle_id} 没记 marked_line，没法定位（旧格式记录？）")
+        return 1
+    hits = [i for i, ln in enumerate(lines) if ln.strip() == marked]
+    if len(hits) != 1:
+        print(f"[拒绝] 带标记的那一行在 {rel} 里找到 {len(hits)} 处，不猜；请手工处理")
+        return 1
+    hit = hits[0]
+    original = str(rec.get("line") or "")
+    if dry:
+        print(f"[dry] 会把 {rel} 第 {hit + 1} 行还原成退休前那一行（原在第 {rec.get('line_no')} 行）")
+        return 0
+    lines[hit] = original
+    write_doc(path, lines, crlf)
+    write_receipts(
+        root,
+        [
+            {
+                "at": datetime.now().isoformat(timespec="seconds"),
+                "kind": "restore",
+                "batch_id": "",
+                "recycle_id": recycle_id,
+                "file": rel,
+                "line_no": hit + 1,
+                "line_sha256": sha256_hex(original.encode("utf-8")),
+                "file_sha256": file_sha(path),
+                "line_count": count_lines(lines),
+                "detail": "按带标记那一行内容精确匹配放回原行",
+            }
+        ],
+    )
+    print(f"✓ 已还原 {rel} 第 {hit + 1} 行（回收站 {recycle_id}）")
+    print("  行 sha256 与回收站里记的对不对得上："
+          f"{'一致' if sha256_hex(original.encode('utf-8')) == (rec.get('line_sha256') or '') else '不一致'}")
+    print("  回执已追加 → state/write_receipts.jsonl")
+    return 0
 
 
 def selftest() -> int:
@@ -590,6 +1114,10 @@ def selftest() -> int:
             newline="",       # 不关掉翻译，Windows 上会被写成 CRLF，换行风格用例直接假红
         )
         before = len(read_lines(target))
+        # 2026-11-02：这条**故意不给 evidence**——它代表「对话里记下来的一句话」，
+        # 闸门口径是「只有来源是文件/文档的写入才强制证据锚」。公开文档
+        # （`AGENTS.md` §2、`SKILL.md` §5）印出去的示例 payload 就是这个形状，
+        # 一律强制 evidence 等于把已发布的契约当场改坏。这条同时是向后兼容判据。
         payload = [
             {
                 "module": "903",
@@ -597,15 +1125,26 @@ def selftest() -> int:
                 "keys": ["自测", "程序写入"],
                 "section": "硬禁忌",
                 "body": "自测专用条目，跑完即删\n第二行要能一起进去",
+                "source": "test-transcript",
             }
         ]
         gate = load_gate()
-        g = gate.validate(payload)
+        g = gate.validate(payload, root)
         check("闸门放行合法 payload", g.get("ok") is True, str(g.get("errors")))
-        g2, normalized = prepare(payload)
+        g2, normalized = prepare(payload, root)
         # 2026-10-24：这条原来写的是「闸门会丢掉 section（已知）」——等于把缺陷固化成预期，
         # 哪天有人把闸门修好了，自测反而变红。改成只断言对外契约：prepare 之后一定还在。
-        check("prepare 之后 section 还在", normalized[0].get("section") == "硬禁忌")
+        # 2026-11-02（Lead 报的真 bug）：先判非空再取 [0]——闸门拒了整批时 normalized 是空列表，
+        # 原来直接 `normalized[0]` 会崩成 `IndexError`，把真正的原因（闸门为什么拒）盖掉。
+        check(
+            "prepare 之后 normalized 非空",
+            bool(normalized),
+            "闸门拒了整批，先看上面那条报了什么",
+        )
+        check(
+            "prepare 之后 section 还在",
+            bool(normalized) and normalized[0].get("section") == "硬禁忌",
+        )
         res = apply(root, normalized, today, dry=False)
         check("写入成功", res["ok"] is True, str(res["errors"]))
         lines = read_lines(target)
@@ -630,7 +1169,15 @@ def selftest() -> int:
         )
 
         again = apply(root, normalized, today, dry=False)
-        check("重复写入被去重", again["ok"] is True and len(again["skipped"]) == 1)
+        # 2026-11-02：加了幂等键之后，同一条内容的第二次写入走「重放」这一路
+        # （`replay`），不再落到 `already_there` 的 `skipped`；两条路都算「没重复写」，
+        # 所以这里一起判，顺带证明幂等账真的落了盘。
+        check(
+            "重复写入被去重（跳过或幂等重放）",
+            again["ok"] is True
+            and (len(again["skipped"]) + len(again.get("replay") or [])) == 1,
+            f"skipped={again['skipped']} replay={again.get('replay')}",
+        )
         check("去重后行数不变", len(read_lines(target)) == before + 2)
 
         bad = apply(
@@ -760,6 +1307,156 @@ def selftest() -> int:
             "第二条把第一条覆盖了",
         )
 
+        # ===== 批 6 审计层三件（幂等键 / 并发令牌 / 软删回收站）=====
+        # ① 幂等键：同一个显式 key 配两份不同内容 → 整批零写入并报 `error=idempotency`。
+        #    照 dream `knowledge-store.js:420-453` 的「同 key 异 hash 报错」，不静默吞掉。
+        idem_key = "selftest-idem-key"
+        first_idem = apply(
+            root,
+            [
+                {
+                    "module": "903",
+                    "op": "add",
+                    "keys": ["幂等"],
+                    "section": "硬禁忌",
+                    "body": "幂等键的第一条内容",
+                    "idempotency_key": idem_key,
+                    "source": "test-transcript",
+                }
+            ],
+            today,
+            dry=False,
+        )
+        snap_before_conflict = target.read_bytes()
+        conflict = apply(
+            root,
+            [
+                {
+                    "module": "903",
+                    "op": "add",
+                    "keys": ["幂等"],
+                    "section": "硬禁忌",
+                    "body": "同 key 但换了一份内容",
+                    "idempotency_key": idem_key,
+                    "source": "test-transcript",
+                }
+            ],
+            today,
+            dry=False,
+        )
+        check(
+            "同 key 异内容整批零写入并报 idempotency",
+            first_idem["ok"] is True
+            and conflict["ok"] is False
+            and conflict.get("error") == "idempotency"
+            and bool(conflict.get("conflicts"))
+            and target.read_bytes() == snap_before_conflict,
+            f"ok={conflict['ok']} error={conflict.get('error')} conflicts={conflict.get('conflicts')}",
+        )
+
+        # ② 并发令牌：`expected_revision` 不符 → 在任何写入之前整批回绝。
+        snap_before_rev = target.read_bytes()
+        stale = apply(
+            root,
+            [
+                {
+                    "module": "903",
+                    "op": "add",
+                    "keys": ["令牌"],
+                    "section": "硬禁忌",
+                    "body": "令牌过期时这条不该落盘",
+                    "source": "test-transcript",
+                }
+            ],
+            today,
+            dry=False,
+            batch={"expected_revision": {"references/903-自测模块.md": "0" * 16}},
+        )
+        check(
+            "expected_revision 不符整批零写入并报 revision",
+            stale["ok"] is False
+            and stale.get("error") == "revision"
+            and bool(stale.get("mismatch"))
+            and target.read_bytes() == snap_before_rev,
+            f"ok={stale['ok']} error={stale.get('error')} mismatch={stale.get('mismatch')}",
+        )
+        fresh_rev = apply(
+            root,
+            [
+                {
+                    "module": "903",
+                    "op": "add",
+                    "keys": ["令牌"],
+                    "section": "硬禁忌",
+                    "body": "令牌新鲜时这条应该落盘",
+                    "source": "test-transcript",
+                }
+            ],
+            today,
+            dry=False,
+            batch={"expected_revision": {"references/903-自测模块.md": file_sha(target)[:16]}},
+        )
+        check(
+            "expected_revision 相符照写",
+            fresh_rev["ok"] is True
+            and any("令牌新鲜时这条应该落盘" in ln for ln in read_lines(target)),
+            str(fresh_rev.get("errors")),
+        )
+
+        # ③ 软删回收站：退休前先把原行逐字抄进 `state/recycle/<日期>.jsonl`，
+        #    `restore()` 按带标记那一行**内容精确匹配**放回（不按行号）。
+        before_retire = read_lines(target)
+        retire_res = apply(
+            root,
+            [{"module": "903", "op": "retire", "old": "- 旧条目一", "reason": "自测：这条不要了"}],
+            today,
+            dry=False,
+        )
+        recs = [r for r in all_recycle(root) if r.get("reason") == "自测：这条不要了"]
+        after_retire = read_lines(target)
+        check(
+            "retire 落回收站并原样记下被删行",
+            retire_res["ok"] is True
+            and len(recs) == 1
+            and recs[0].get("line") == "- 旧条目一"
+            and recs[0].get("line_sha256") == sha256_hex("- 旧条目一".encode("utf-8"))
+            and recs[0].get("file") == "references/903-自测模块.md",
+            f"retire_ok={retire_res['ok']} recs={len(recs)} {retire_res.get('errors')}",
+        )
+        check(
+            "退休标记进正文且行数不变",
+            any("（已退休 " in ln and "自测：这条不要了" in ln for ln in after_retire)
+            and len(after_retire) == len(before_retire),
+        )
+        rc_id = str(recs[0].get("recycle_id") or "") if recs else ""
+        back = restore(root, rc_id, dry=False) if rc_id else 1
+        back_lines = read_lines(target)
+        check(
+            "restore 按内容精确匹配放回原行",
+            back == 0
+            and "- 旧条目一" in back_lines
+            and not any("（已退休 " in ln and "自测：这条不要了" in ln for ln in back_lines)
+            and len(back_lines) == len(before_retire),
+            f"restore_rc={back} rc_id={rc_id}",
+        )
+
+        # ④ 回执可复核：文件没被碰过时报零问题；手改一次就能指出来。
+        clean_problems = verify_receipts(root)
+        snap_verify = target.read_bytes()
+        target.write_text(
+            target.read_text(encoding="utf-8") + "\n手改一行，回执应该看出来\n",
+            encoding="utf-8",
+            newline="",
+        )
+        dirty_problems = verify_receipts(root)
+        target.write_bytes(snap_verify)
+        check(
+            "回执复核：干净零问题、手改后报得出来",
+            clean_problems == []
+            and any("对不上" in (p.get("problem") or "") for p in dirty_problems),
+            f"clean={len(clean_problems)} dirty={dirty_problems[:2]}",
+        )
+
     print(f"selftest {passes}/{total}")
     return 0 if passes == total else 1
 
@@ -842,6 +1539,10 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--json", action="store_true", help="输出 JSON 结果")
     ap.add_argument("--new-module", metavar="NN-名字",
                     help="新建一个自己的模块文件（如 801-我是谁），并登记路由表")
+    ap.add_argument("--restore", metavar="RECYCLE_ID",
+                    help="从回收站按 recycle_id 把被退休的那一行原样放回（批 6）")
+    ap.add_argument("--verify-receipts", action="store_true",
+                    help="按 state/write_receipts.jsonl 复核磁盘（批 6）")
     args = ap.parse_args(argv)
 
     if args.selftest:
@@ -850,6 +1551,17 @@ def main(argv: list[str]) -> int:
     root = Path(args.root).resolve() if args.root else DEFAULT_ROOT
     if args.new_module:
         return new_module(root, args.new_module, args.dry)
+    if args.restore:
+        return restore(root, args.restore, bool(args.dry))
+    if args.verify_receipts:
+        problems = verify_receipts(root)
+        if not problems:
+            print("✓ 回执复核通过：每个文件最新那条凭据都对得上（state/write_receipts.jsonl）")
+            return 0
+        print(f"✗ 回执复核发现 {len(problems)} 处问题：")
+        for p in problems:
+            print(f"  - {p['file']}：{p['problem']}")
+        return 1
 
     if args.payload:
         raw = Path(args.payload).read_text(encoding="utf-8-sig")
@@ -860,28 +1572,38 @@ def main(argv: list[str]) -> int:
     except json.JSONDecodeError as exc:
         print(f"[拒绝] payload 不是合法 JSON：{exc}")
         return 1
-    if not isinstance(payload, list):
+    if not isinstance(payload, (list, dict)):
         payload = [payload]
 
-    gate_result, normalized = prepare(payload)
+    gate_result, normalized, batch = prepare_full(payload, root)
     if gate_result.get("ok") is not True:
+        # 2026-11-02（task-22 D11）：报错要能照着做——标准号位没建文件时补一条可复制的命令。
+        hints = rejection_hints(root, gate_result)
         if args.json:
+            if hints:
+                gate_result = dict(gate_result, hints=hints)
             print(json.dumps(gate_result, ensure_ascii=False, indent=2))
         else:
             print("闸门拒绝，一条都没写：")
             for e in gate_result.get("errors", []):
                 print(f"  ✗ [{e['index']}] {e['field']}: {e['reason']}")
+            for line in hints:
+                print(line)
         return 1
 
     today = date.today().isoformat()
-    result = apply(root, normalized, today, bool(args.dry))
+    result = apply(root, normalized, today, bool(args.dry), batch)
     if args.json:
         print(
             json.dumps(
                 {
                     "ok": result["ok"],
+                    "error": result.get("error"),
                     "errors": result["errors"],
                     "skipped": result["skipped"],
+                    "replay": result.get("replay") or [],
+                    "receipts": len(result.get("receipts") or []),
+                    "batch_id": result.get("batch_id") or "",
                     "written": [
                         {"file": p["path"].name, "section": p["section"], "lines": p["added"]}
                         for p in result["planned"]

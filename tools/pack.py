@@ -151,6 +151,28 @@ def get_head(body: str) -> tuple[str, str]:
     return "\n".join(lines[: end + 1]), "\n".join(lines[end + 1 :])
 
 
+TICK_BEGIN = "<!-- TICK:BEGIN 机器生成，手改会被下次运行覆盖 -->"
+TICK_END = "<!-- TICK:END -->"
+
+
+def tick_scaffold(body: str) -> str:
+    """把 TICK 机器区的骨架抄出来（不带数据行）；源文件里没有这块就返回空串。
+
+    2026-11-02：`923-巡检记录.md` 是 distribute: blank，但它带 `tools/tick.py`
+    的机器区。打包时若连机器区骨架一起丢掉，新用户第一次跑 tick.py 会报
+    「找不到 | 日期 表头」直接退出——所以空槽里也要留下这块骨架。
+    """
+    if TICK_BEGIN not in body or TICK_END not in body:
+        return ""
+    seg = body.replace("\r\n", "\n").split(TICK_BEGIN, 1)[1].split(TICK_END, 1)[0]
+    keep = []
+    for ln in seg.split("\n"):
+        keep.append(ln)
+        if re.match(r"^\|\s*:?-{3,}", ln):
+            break
+    return "\n" + TICK_BEGIN + "\n".join(keep) + "\n" + TICK_END + "\n"
+
+
 def to_blank(text: str, hint: str = "") -> str:
     fm, body = split_doc(text)
     # 2026-10-24：只有 frontmatter 是「空槽」还漏——她的兴趣、学科、项目名
@@ -179,7 +201,9 @@ def to_blank(text: str, hint: str = "") -> str:
     fm = re.sub(r"(?m)^updated:.*$", f"updated: {_date.today().isoformat()}", fm)
     head, _ = get_head(body)
     note = "\n> 这个模块是空的：按自己的情况往里加条目，一条只记一个事实，格式见 `926-模块标题.md`。\n"
-    return fm + head + note
+    # 2026-11-02：脚本自己维护的机器区（tools/tick.py）在打包时不能连骨架一起丢，
+    # 否则新用户第一次跑 tick.py 会「找不到 | 日期 表头」直接退出。
+    return fm + head + note + tick_scaffold(body)
 
 
 def to_reset(text: str) -> str:
@@ -792,8 +816,31 @@ def main() -> int:
     for name in ("AGENTS.md", "SKILL.md", "setup.ps1", "VERSION", "config.example.json"):
         if (target / name).exists():
             skeleton_items.append(name)
+    # 2026-11-02（batch9 续）：`references/9*.md` 里混着一批**用户自己长出来的结构件**——
+    # 921 变更日志每次写记忆追加、922 inbox 追加、923 巡检记录由 tick.py 重写、927 目录由
+    # catalog.py 重算、928 路由详表由 routes.py 重算、926 供新用户照抄格式、924 合并候选。
+    # tools/update.py 早就把它们的归属写死了（USER_OWNED：「升级永远不碰它们」），可骨架清单
+    # 却把它们一起签了进去——新用户开箱后正常用两下，skeleton_guard 就一路报「骨架被动过」，
+    # 而 README 又叫用户跑它来确认骨架没被动过。真源只认 tools/update.py 的那份常量，不抄第二遍。
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from update import USER_OWNED  # noqa: E402
+    except Exception:  # noqa: BLE001
+        # 真源同 tools/update.py USER_OWNED（import 拿不到时的兜底，改动请只改那份）
+        USER_OWNED = (
+            "references/921-变更日志.md",
+            "references/927-记忆库总览.md",
+            "references/923-巡检记录.md",
+            "references/922-待确认inbox.md",
+            "references/928-路由详表.md",
+            "references/924-合并候选清单.md",
+            "references/926-模块标题.md",
+        )
     for p in sorted((target / "references").glob("9*.md")):
-        skeleton_items.append(p.relative_to(target).as_posix())
+        rel = p.relative_to(target).as_posix()
+        if rel in USER_OWNED:
+            continue
+        skeleton_items.append(rel)
     # 2026-10-27 第二级坐实：81 个子类骨架节点也是骨架，漏了收包人跑 skeleton_guard 就
     # 认为「结构不完整」。路径按迁移后的规矩：1xx–8xx 在 memory/<分区>/、9xx 在 references/<分区>/。
     for base_dir in ("memory", "references"):
@@ -807,7 +854,12 @@ def main() -> int:
     skeleton_items = sorted(set(skeleton_items))
     sha_lines: list[str] = [
         "# 骨架清单：每行的 sha256 对得上才算没被动过。校验用 python tools/skeleton_guard.py",
-        "# 你的记忆模块（references/ 里除 9x 以外的文件）不在清单里，随便改。",
+        "# 在清单里 = 系统区协议件：tools/ bin/ templates/ framework-public/ 下的文件、SKILL.md、",
+        "# AGENTS.md、setup.ps1、VERSION、config.example.json、references/ 下的 9x 说明书，",
+        "# 以及两级骨架节点占位（memory/<分区>/NNN-子类占位.md）。",
+        "# 不在清单里 = 你自己的东西，随便改：001–813 那些记忆模块，加上 references/ 下你自己",
+        "# 长出来的结构件（921 变更日志 / 922 inbox / 923 巡检记录 / 926 模块标题 / 927 目录 /",
+        "# 928 路由详表 / 924 合并候选）——这些本来就会被写记忆和 tick / catalog / routes 反复重写。",
     ]
     for rel in skeleton_items:
         sha_lines.append(f"{hashlib.sha256((target / rel).read_bytes()).hexdigest()}  {rel}")

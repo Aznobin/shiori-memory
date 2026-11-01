@@ -120,6 +120,26 @@ def run_py(script: Path, *args: str) -> bool:
         return False
 
 
+def refresh_route_detail() -> bool:
+    """重算 `references/928-路由详表.md`（= `tools/routes.py` 的 write_detail）。
+
+    2026-11-02（batch9 D2）：一级骨架槽位是安装这一步才长出来的，928 必须跟着重算——
+    它是体检核「文件有没有登记进路由表」的唯一来源，不重算就反过来报 ❌。
+    只写 928，不碰工作区 AGENTS.md（那块的 ROUTES 托管块归 agents_sync.py），
+    所以不走 `routes.py` 的 main()：它在没填 workspace 的机器上会满目录找 AGENTS.md 并退出。
+    """
+    try:
+        sys.path.insert(0, str(TOOLS))
+        import routes  # noqa: PLC0415
+
+        n_mod, n_node = routes.write_detail()
+    except Exception as exc:  # noqa: BLE001
+        step(f"⚠️ 路由详表没刷新：{exc}")
+        return False
+    step(f"路由详表已重算：{n_mod} 个模块 + {n_node} 个二级节点")
+    return True
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--workspace", default="")
@@ -138,7 +158,6 @@ def main() -> int:
 
     print("结构：")
     step("根目录 " + str(ROOT))
-    step(f"模块 {len(module_files())} 个")
 
     cfg = load_cfg()
     paths = cfg.setdefault("paths", {})
@@ -160,6 +179,22 @@ def main() -> int:
     print("配置：")
     step("python  " + py)
     step("工作区  " + (paths.get("workspace") or "(未设置，跳过 AGENTS.md)"))
+
+    # 2026-11-02（batch9 D2）：一级骨架槽位（000/100/…/800）**不在包里**——出包时 `memory/`
+    # 整目录被排除（包内只留 813 语气模板），随包发的只有二级子类节点
+    # `memory/<分区>/NNN-子类占位.md`；顶层槽位文件会被出包断言挡下（verify_pack 只放行那两种
+    # 形态，见 tools/verify_pack.py 的 DIST_MEMORY_ALLOW / NODE_FILE_RE）。可它们是升级置换的
+    # 预留位，缺一个 memory_check 就报 ❌，全新解压的库天生带 9 条红。所以让安装这一步就地长齐：
+    # 100–800 由 skeleton_nodes.py（它按老规矩跳过 000），`000-总索引.md` 由 total_index.py；
+    # 长完立刻重算 928-路由详表.md，否则体检反过来说「文件未登记进路由表」。
+    print("骨架：")
+    if not run_py(TOOLS / "skeleton_nodes.py"):
+        step("⚠️ 一级骨架槽位没长出来，稍后手动跑 python tools/skeleton_nodes.py")
+    if not run_py(TOOLS / "total_index.py"):
+        step("⚠️ memory/000-总索引.md 没生成，稍后手动跑 python tools/total_index.py")
+    if not refresh_route_detail():
+        step("↳ 稍后手动跑 python tools/routes.py（不跑体检会报「文件未登记进路由表」）")
+    step(f"模块 {len(module_files())} 个")
 
     if paths.get("workspace"):
         write_agents(Path(paths["workspace"]).expanduser(), cfg, args.force_agents)

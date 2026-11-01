@@ -33,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import annotate  # noqa: E402
+import config as _config  # noqa: E402
 import synonyms  # noqa: E402
 from paths import (  # noqa: E402
     ROOT, module_paths, rel, resolve_module,
@@ -73,6 +74,9 @@ DATE_CACHE = FRAG / ".dates.json"   # 行级日期缓存；build 只删 *.md，�
 RECENT_HALF_LIFE = 90.0             # 时间乘子的半衰期：90 天新鲜度掉一半
 RECENT_BASE, RECENT_W = 0.7, 0.3    # final = score * (0.7 + 0.3 * recency)，混合式不是纯乘
 DECAY_STATE = ROOT / "state" / "decay.json"   # 冷热状态的唯一事实源；build 从这里把 status/seen 带回来
+READS = ROOT / "state" / "reads.json"         # 「读过」账（2026-11-02 批6）：运行期数据，只落 state/
+# 读账口径走 config.py，配置里没写就用那边的默认值（老库没有这一段也照跑）
+READS_ON = bool(_config.reads("enabled"))
 ANN_STATS: dict[str, int] = {}                # 三段短标注的统计（每次 build 清零）
 
 
@@ -408,13 +412,32 @@ def part_of(title: str) -> dict:
     return {"base": m.group("base").strip() or text, "seq": seq}
 
 
+def _load_reads() -> dict[str, dict]:
+    """「读过」账（`state/reads.json`，2026-11-02 批6）：build 只读不写，坏文件当空账。
+
+    这份账只做「读过」档，**绝不参与冷热判定**——decay 的 status / recency 一律不看它。
+    老库没有这份文件时返回空账，build 结果与以前逐字节一致。
+    """
+    if not READS_ON or not READS.exists():
+        return {}
+    try:
+        book = json.loads(READS.read_text(encoding="utf-8"))
+    except (ValueError, TypeError, OSError):
+        return {}
+    return book if isinstance(book, dict) else {}
+
+
 def carry_decay_state() -> dict[str, dict]:
     """build() 会整盘重建 index.json，status / seen / last_seen 必须原样带回来。
 
     优先级：`state/decay.json`（decay.py 写的，权威）> 旧 `index.json` > 默认 `active` / 0。
     这条错了冷热层等于白做——每 build 一次所有片段诈尸回 active（2026-10-23）。
+
+    2026-11-02 批6：再多带一档「读过」（`state/reads.json`）的 `read_count` / `read_last`。
+    它们只作展示与排查用，不参与 status / recency，也和 `seen` / `last_seen` 是两回事。
     """
     carried: dict[str, dict] = {}
+    seed = {"seen": 0, "status": "active", "last_seen": None, "read_count": 0, "read_last": None}
     old = FRAG / "index.json"
     if old.exists():
         try:
@@ -423,6 +446,8 @@ def carry_decay_state() -> dict[str, dict]:
                     "seen": int(item.get("seen") or 0),
                     "status": str(item.get("status") or "active"),
                     "last_seen": item.get("last_seen") or None,
+                    "read_count": int(item.get("read_count") or 0),
+                    "read_last": item.get("read_last") or None,
                 }
         except (ValueError, TypeError):
             pass
@@ -432,7 +457,7 @@ def carry_decay_state() -> dict[str, dict]:
             for frag_id, info in (state.get("frags") or {}).items():
                 if not isinstance(info, dict):
                     continue
-                cur = carried.setdefault(frag_id, {"seen": 0, "status": "active", "last_seen": None})
+                cur = carried.setdefault(frag_id, dict(seed))
                 if info.get("status"):
                     cur["status"] = str(info["status"])
                 if info.get("seen") is not None:
@@ -441,6 +466,12 @@ def carry_decay_state() -> dict[str, dict]:
                     cur["last_seen"] = str(info["lastSeen"])
         except (ValueError, TypeError):
             pass
+    for frag_id, info in _load_reads().items():
+        if not isinstance(info, dict):
+            continue
+        cur = carried.setdefault(str(frag_id), dict(seed))
+        cur["read_count"] = int(info.get("read_count") or 0)
+        cur["read_last"] = info.get("read_last") or None
     return carried
 
 
@@ -598,6 +629,10 @@ def build() -> int:
                 "seen": int((carried.get(frag_id) or {}).get("seen") or 0),
                 "status": (carried.get(frag_id) or {}).get("status") or "active",
                 "last_seen": (carried.get(frag_id) or {}).get("last_seen"),
+                # 「读过」档（2026-11-02 批6）：只展示用，不参与 status / recency。
+                # 老库 / 没记过 → 0 / None，所以升级上来 index 只是多两个键，行为不变。
+                "read_count": int((carried.get(frag_id) or {}).get("read_count") or 0),
+                "read_last": (carried.get(frag_id) or {}).get("read_last"),
                 "file": str((mod_dir / name).relative_to(ROOT)).replace("\\", "/"),
                 "lines": len(lines),
                 "chars": len(text),
@@ -1371,6 +1406,87 @@ def cmd_core(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_selftest(_: argparse.Namespace) -> int:
+    """自检「读 ≠ 用」两档在 build 侧的落地（2026-11-02 批6）。
+
+    全程在临时目录里跑：FRAG / DATE_CACHE / DECAY_STATE / READS 四个模块级路径临时指到
+    tmp，原库的 fragments/ 与 state/ 一个字节都不碰。
+    """
+    global FRAG, DATE_CACHE, DECAY_STATE, READS
+
+    import tempfile
+
+    passes = 0
+    total = 0
+
+    def check(name: str, cond: bool, extra: str = "") -> None:
+        nonlocal passes, total
+        total += 1
+        if cond:
+            passes += 1
+            print(f"  ✓ {name}")
+        else:
+            print(f"  ✗ {name} {extra}")
+
+    keep = (FRAG, DATE_CACHE, DECAY_STATE, READS)
+    try:
+        with tempfile.TemporaryDirectory(prefix="frag-selftest-") as tmp:
+            root = Path(tmp)
+            FRAG = root / "fragments"
+            FRAG.mkdir()
+            DATE_CACHE = FRAG / ".dates.json"
+            DECAY_STATE = root / "decay.json"
+            READS = root / "reads.json"
+
+            # 老库形态：旧 index 还没有，读账也没有
+            check("老库无 reads.json 时 _load_reads() = 空账", _load_reads() == {})
+            check("三份都没有时 carry_decay_state() = 空", carry_decay_state() == {})
+
+            # 只有旧 index（老字段）：读账字段补 0 / None
+            (FRAG / "index.json").write_text(json.dumps([
+                {"frag": "001.001", "seen": 3, "status": "cold", "last_seen": "2026-10-20"},
+            ], ensure_ascii=False), encoding="utf-8")
+            c = carry_decay_state()["001.001"]
+            check("旧 index 老字段原样带回",
+                  (c["seen"], c["status"], c["last_seen"]) == (3, "cold", "2026-10-20"), str(c))
+            check("旧 index 没有读账字段时补 0 / None",
+                  (c["read_count"], c["read_last"]) == (0, None), str(c))
+
+            # 有读账：只补读账，status / seen / last_seen 一个字不动
+            READS.write_text(json.dumps({
+                "001.001": {"read_count": 7, "read_first": "2026-11-01", "read_last": "2026-11-02"},
+                "001.009": {"read_count": 2, "read_last": "2026-11-02"},
+            }, ensure_ascii=False), encoding="utf-8")
+            c = carry_decay_state()["001.001"]
+            check("读账补进 read_count / read_last",
+                  (c["read_count"], c["read_last"]) == (7, "2026-11-02"), str(c))
+            check("读账不动 status / seen / last_seen（两档不混）",
+                  (c["seen"], c["status"], c["last_seen"]) == (3, "cold", "2026-10-20"), str(c))
+            c9 = carry_decay_state()["001.009"]
+            check("只在读账里的片段也带默认 status / seen",
+                  (c9["status"], c9["seen"]) == ("active", 0), str(c9))
+
+            # decay.json 是权威：status / seen 以它为准，读账仍只补读账
+            DECAY_STATE.write_text(json.dumps({"frags": {
+                "001.001": {"status": "archived", "seen": 5, "lastSeen": "2026-10-25"},
+            }}, ensure_ascii=False), encoding="utf-8")
+            c = carry_decay_state()["001.001"]
+            check("decay.json 覆盖 status / seen（老行为一个字不变）",
+                  (c["seen"], c["status"], c["last_seen"]) == (5, "archived", "2026-10-25"), str(c))
+            check("decay.json 覆盖后读账仍是 7", c["read_count"] == 7, str(c))
+
+            # 坏账不许炸
+            READS.write_text("{ 这不是 json", encoding="utf-8")
+            check("读账坏掉时 _load_reads() 退化成空账", _load_reads() == {})
+            check("读账坏掉时 carry_decay_state() 照跑",
+                  carry_decay_state()["001.001"]["status"] == "archived")
+    finally:
+        FRAG, DATE_CACHE, DECAY_STATE, READS = keep
+
+    print(f"selftest {passes}/{total}")
+    return 0 if passes == total else 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="记忆片段工具")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1416,10 +1532,12 @@ def main() -> int:
     p = sub.add_parser("morning")
     p.add_argument("--random", type=int, default=2)
 
+    sub.add_parser("selftest", help="自检「读 ≠ 用」两档带字段（临时目录，不碰原库）")
+
     args = ap.parse_args()
     return {"build": lambda a: build(), "list": cmd_list, "search": cmd_search,
             "pack": cmd_pack, "auto": cmd_auto, "lint": cmd_lint, "stats": cmd_stats,
-            "core": cmd_core, "morning": cmd_morning}[args.cmd](args)
+            "core": cmd_core, "morning": cmd_morning, "selftest": cmd_selftest}[args.cmd](args)
 
 
 if __name__ == "__main__":

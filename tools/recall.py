@@ -773,6 +773,27 @@ def emit(text, fmt):
     sys.stdout.write("\n")
 
 
+def note_read_hits(fps):
+    """把这一轮真进了上下文的片段记进「读过」账（`state/reads.json`，2026-11-02 批6）。
+
+    这是**第一档**：进了上下文就算「读过」，不表示被取用。第二档「用到」的口径
+    （谁在什么时候回写、拿什么判据）仍未定，所以这里只涨读账，**绝不碰 index 的
+    `seen` / `last_seen`** —— 混成一个就会把「读过」当「用过」，冷片段被读几次就
+    诈尸回热（batch5 c6 对照组实测就是这个失败）。
+
+    没记成时只往 stderr 打一行真原因，不静默、也不影响这一轮的注入（2026-10-22 的坑：
+    被 catch 成「跳过」等于没修好）。
+    """
+    if not fps:
+        return 0
+    try:
+        import decay
+        return decay.note_read(fps)
+    except Exception as exc:  # 读账是副产品，绝不能拦住注入
+        print(f"reads: 记「读过」失败：{exc!r}", file=sys.stderr)
+        return 0
+
+
 def cmd_hook(a):
     sweep()
     session, text, cwd = read_hook_input()
@@ -827,6 +848,7 @@ def cmd_hook(a):
         card, fps = build_card(rows, st, reason, no_random=no_random)
         if card:
             st["seen"] = list(st.get("seen", [])) + fps
+            note_read_hits(fps)   # 「读过」档：只进 state/reads.json，不碰 index 的 seen
             if fps:
                 keep = max(RECENT_TURNS - 1, 0)
                 recent = list(st.get("recent") or [])
@@ -894,6 +916,61 @@ def cmd_reset(a):
     return 0
 
 
+def cmd_selftest(a):
+    """自检「读 ≠ 用」在召回侧的接线（2026-11-02 批6）：临时目录，不碰原库。"""
+    passes = total = 0
+
+    def check(name, cond, extra=""):
+        nonlocal passes, total
+        total += 1
+        if cond:
+            passes += 1
+            print(f"  ✓ {name}")
+        else:
+            print(f"  ✗ {name} {extra}")
+
+    try:
+        import decay
+    except Exception as exc:  # 导不到就没法自检，如实报出来
+        print(f"  ✗ 导不到 tools/decay.py：{exc!r}")
+        print("selftest 0/1")
+        return 1
+
+    keep_reads, keep_index = decay.READS, decay.INDEX
+    try:
+        with tempfile.TemporaryDirectory(prefix="recall-selftest-") as tmp:
+            root = Path(tmp)
+            decay.READS = root / "reads.json"
+            decay.INDEX = root / "index.json"
+            decay.INDEX.write_text("[]", encoding="utf-8")
+
+            check("空 fps 不记账、也不建文件",
+                  note_read_hits([]) == 0 and not decay.READS.exists())
+            check("一轮命中记 1 条", note_read_hits(["001.001"]) == 1)
+            book = json.loads(decay.READS.read_text(encoding="utf-8"))
+            check("读账写了 read_count / read_last",
+                  book["001.001"]["read_count"] == 1 and bool(book["001.001"].get("read_last")),
+                  str(book))
+            check("读过不写 index 的 seen / last_seen（两档不混）",
+                  json.loads(decay.INDEX.read_text(encoding="utf-8")) == [])
+
+            check("同一轮里同一条重复出现只算一次", note_read_hits(["001.001", "001.001"]) == 1)
+            check("两轮各命中一次 → read_count = 2",
+                  json.loads(decay.READS.read_text(encoding="utf-8"))["001.001"]["read_count"] == 2,
+                  decay.READS.read_text(encoding="utf-8"))
+            check("读账里不会多出别的片段", sorted(book) == ["001.001"], str(sorted(book)))
+
+            decay.READS = root / "冒出个目录"   # 让写盘必失败
+            decay.READS.parent.mkdir(exist_ok=True)
+            (root / "冒出个目录").mkdir()
+            check("读账写盘失败时不抛异常（只打真原因）", note_read_hits(["001.002"]) == 0)
+    finally:
+        decay.READS, decay.INDEX = keep_reads, keep_index
+
+    print(f"selftest {passes}/{total}")
+    return 0 if passes == total else 1
+
+
 def main():
     ap = argparse.ArgumentParser(description="记忆库按需自动注入引擎")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -920,6 +997,9 @@ def main():
     p = sub.add_parser("reset")
     p.add_argument("--session", default="default")
     p.set_defaults(fn=cmd_reset)
+
+    p = sub.add_parser("selftest", help="自检「读 ≠ 用」接线（临时目录，不碰原库）")
+    p.set_defaults(fn=cmd_selftest)
 
     a = ap.parse_args()
     a.fn(a)
